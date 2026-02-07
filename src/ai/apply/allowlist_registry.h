@@ -41,6 +41,7 @@ public:
     static bool        is_allowed(const std::string& key);
     static bool        validate_value(const std::string& key, const nlohmann::json& json_value);
     static std::string label_for(const std::string& key);
+    static std::string safety_notes_for(const std::string& key);
     static size_t      key_count();
 };
 

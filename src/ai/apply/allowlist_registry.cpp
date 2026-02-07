@@ -263,6 +263,12 @@ std::string AllowlistRegistry::label_for(const std::string& key)
     return it == registry().end() ? std::string() : it->second.label;
 }
 
+std::string AllowlistRegistry::safety_notes_for(const std::string& key)
+{
+    const auto it = registry().find(key);
+    return it == registry().end() ? std::string() : it->second.safety_notes;
+}
+
 size_t AllowlistRegistry::key_count()
 {
     return registry().size();
