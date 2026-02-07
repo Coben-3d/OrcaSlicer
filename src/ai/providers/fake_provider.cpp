@@ -56,6 +56,18 @@ std::string FakeProvider::run(const ProviderRequest& request) const
             {"tags", json::array({"speed", "layering"})},
             {"requires_user_confirmation", true}
         });
+        changes.push_back(json{
+            {"id", "chg-sparse-infill-density-speed"},
+            {"key", "sparse_infill_density"},
+            {"value", 12},
+            {"value_type", "int"},
+            {"reason", "Diminuer legerement le remplissage accelere l'impression et economise de la matiere."},
+            {"impact", json{{"quality", 5}, {"time", 8}, {"risk", 5}}},
+            {"confidence", has_context ? 0.82 : 0.60},
+            {"applies_to", "profile"},
+            {"tags", json::array({"speed", "infill"})},
+            {"requires_user_confirmation", true}
+        });
     } else {
         changes.push_back(json{
             {"id", "chg-layer-height-quality"},
@@ -67,6 +79,18 @@ std::string FakeProvider::run(const ProviderRequest& request) const
             {"confidence", has_context ? 0.87 : 0.64},
             {"applies_to", "profile"},
             {"tags", json::array({"quality", "surface"})},
+            {"requires_user_confirmation", true}
+        });
+        changes.push_back(json{
+            {"id", "chg-sparse-infill-density-quality"},
+            {"key", "sparse_infill_density"},
+            {"value", 18},
+            {"value_type", "int"},
+            {"reason", "Augmenter moderement le remplissage peut ameliorer la rigidite de la piece."},
+            {"impact", json{{"quality", 7}, {"time", 5}, {"risk", 3}}},
+            {"confidence", has_context ? 0.84 : 0.61},
+            {"applies_to", "profile"},
+            {"tags", json::array({"quality", "strength"})},
             {"requires_user_confirmation", true}
         });
     }
@@ -82,6 +106,42 @@ std::string FakeProvider::run(const ProviderRequest& request) const
         {"applies_to", "global"},
         {"tags", json::array({"geometry", "detail"})},
         {"requires_user_confirmation", true}
+    });
+    changes.push_back(json{
+        {"id", "chg-ironing-type"},
+        {"key", "ironing_type"},
+        {"value", prefers_speed ? "no_ironing" : "top_surfaces"},
+        {"value_type", "enum"},
+        {"reason", "Lissage cible pour controler le compromis finition/temps."},
+        {"impact", json{{"quality", prefers_speed ? 4 : 7}, {"time", prefers_speed ? 8 : 5}, {"risk", 3}}},
+        {"confidence", has_context ? 0.80 : 0.58},
+        {"applies_to", "profile"},
+        {"tags", json::array({"surface", "postprocessing"})},
+        {"requires_user_confirmation", true}
+    });
+    changes.push_back(json{
+        {"id", "chg-support_enable"},
+        {"key", "support_enable"},
+        {"value", has_geometry},
+        {"value_type", "bool"},
+        {"reason", "Activer les supports seulement quand des surplombs sont probables."},
+        {"impact", json{{"quality", has_geometry ? 7 : 5}, {"time", has_geometry ? 4 : 7}, {"risk", 5}}},
+        {"confidence", has_geometry ? 0.83 : 0.50},
+        {"applies_to", "profile"},
+        {"tags", json::array({"supports", "overhang"})},
+        {"requires_user_confirmation", true}
+    });
+    changes.push_back(json{
+        {"id", "chg-print_sequence"},
+        {"key", "print_sequence"},
+        {"value", "by_layer"},
+        {"value_type", "enum"},
+        {"reason", "Conserver une sequence stable pour limiter les collisions pendant les trajets."},
+        {"impact", json{{"quality", 6}, {"time", 6}, {"risk", 2}}},
+        {"confidence", has_context ? 0.81 : 0.59},
+        {"applies_to", "global"},
+        {"tags", json::array({"stability", "travel"})},
+        {"requires_user_confirmation", false}
     });
 
     response["recommended_changes"] = std::move(changes);
