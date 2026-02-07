@@ -239,6 +239,24 @@ void append_settings(const DynamicPrintConfig& config, json& settings, const std
     }
 }
 
+void append_settings_until_limit(const DynamicPrintConfig& config, json& settings, const std::string& prefix, size_t min_count)
+{
+    if (settings.size() >= min_count)
+        return;
+
+    t_config_option_keys keys = config.keys();
+    std::sort(keys.begin(), keys.end());
+    for (const auto& key : keys) {
+        if (settings.size() >= min_count)
+            break;
+
+        const ConfigOption* option = config.option(key);
+        if (option == nullptr)
+            continue;
+        settings[prefix + key] = config_option_to_json(*option);
+    }
+}
+
 void add_optional_config_value(const DynamicPrintConfig& config, const std::string& key, json& dst, const std::string& out_key)
 {
     const ConfigOption* option = config.option(key);
@@ -349,10 +367,11 @@ std::string build_context_snapshot_json(GUI::Plater& plater)
 
     // Keep a safety fallback in case a constrained profile has too few keys.
     if (settings.size() < 100) {
-        append_settings(printer_config, settings, "printer.");
-        append_settings(filament_config, settings, "filament.");
-        append_settings(bundle->project_config, settings, "project.");
-        append_settings(is_fff ? bundle->prints.get_edited_preset().config : bundle->sla_prints.get_edited_preset().config, settings, "print.");
+        const DynamicPrintConfig& print_config = is_fff ? bundle->prints.get_edited_preset().config : bundle->sla_prints.get_edited_preset().config;
+        append_settings_until_limit(printer_config, settings, "printer.", 100);
+        append_settings_until_limit(filament_config, settings, "filament.", 100);
+        append_settings_until_limit(bundle->project_config, settings, "project.", 100);
+        append_settings_until_limit(print_config, settings, "print.", 100);
     }
     root["settings"] = std::move(settings);
 
