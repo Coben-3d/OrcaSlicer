@@ -724,6 +724,9 @@ target_include_directories(libslic3r_gui PRIVATE Utils ${CMAKE_CURRENT_BINARY_DI
 target_sources(libslic3r_gui PRIVATE
     ${CMAKE_SOURCE_DIR}/src/ai/context_snapshot.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/context_snapshot.h
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/provider.h
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/fake_provider.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/fake_provider.h
 )
 
 if (WIN32)
