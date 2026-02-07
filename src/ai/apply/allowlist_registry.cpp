@@ -212,49 +212,82 @@ bool AllowlistRegistry::is_allowed(const std::string& key)
     return registry().find(key) != registry().end();
 }
 
-bool AllowlistRegistry::validate_value(const std::string& key, const nlohmann::json& json_value)
+ValidationResult AllowlistRegistry::validate_value(const std::string& key, const nlohmann::json& json_value)
 {
+    ValidationResult result;
+
     const auto it = registry().find(key);
-    if (it == registry().end())
-        return false;
+    if (it == registry().end()) {
+        result.error_message = "key is not allowlisted";
+        return result;
+    }
 
     const AllowlistEntry& entry = it->second;
     switch (entry.type) {
     case AllowlistValueType::Bool:
-        return json_value.is_boolean();
+        if (!json_value.is_boolean()) {
+            result.error_message = "expected bool";
+            return result;
+        }
+        break;
     case AllowlistValueType::Int: {
-        if (!json_value.is_number_integer())
-            return false;
+        if (!json_value.is_number_integer()) {
+            result.error_message = "expected int";
+            return result;
+        }
         if (!entry.has_numeric_bounds)
-            return true;
+            break;
         const int value = json_value.get<int>();
-        return static_cast<double>(value) >= entry.min_value && static_cast<double>(value) <= entry.max_value;
+        if (static_cast<double>(value) < entry.min_value || static_cast<double>(value) > entry.max_value) {
+            result.error_message = "int out of bounds";
+            return result;
+        }
+        break;
     }
     case AllowlistValueType::Float: {
-        if (!json_value.is_number())
-            return false;
+        if (!json_value.is_number()) {
+            result.error_message = "expected float";
+            return result;
+        }
         if (!entry.has_numeric_bounds)
-            return true;
+            break;
         const double value = json_value.get<double>();
-        return value >= entry.min_value && value <= entry.max_value;
+        if (value < entry.min_value || value > entry.max_value) {
+            result.error_message = "float out of bounds";
+            return result;
+        }
+        break;
     }
     case AllowlistValueType::String: {
-        if (!json_value.is_string())
-            return false;
+        if (!json_value.is_string()) {
+            result.error_message = "expected string";
+            return result;
+        }
         if (!entry.has_length_bounds)
-            return true;
+            break;
         const auto& value = json_value.get_ref<const std::string&>();
-        return value.size() >= entry.min_length && value.size() <= entry.max_length;
+        if (value.size() < entry.min_length || value.size() > entry.max_length) {
+            result.error_message = "string length out of bounds";
+            return result;
+        }
+        break;
     }
     case AllowlistValueType::Enum: {
-        if (!json_value.is_string())
-            return false;
+        if (!json_value.is_string()) {
+            result.error_message = "expected enum(string)";
+            return result;
+        }
         const auto& value = json_value.get_ref<const std::string&>();
-        return std::find(entry.enum_values.begin(), entry.enum_values.end(), value) != entry.enum_values.end();
+        if (std::find(entry.enum_values.begin(), entry.enum_values.end(), value) == entry.enum_values.end()) {
+            result.error_message = "enum value not allowed";
+            return result;
+        }
+        break;
     }
     }
 
-    return false;
+    result.valid = true;
+    return result;
 }
 
 std::string AllowlistRegistry::label_for(const std::string& key)

@@ -445,8 +445,11 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
             error_message = "key not allowed: " + change.key;
             return false;
         }
-        if (!Slic3r::AI::Apply::AllowlistRegistry::validate_value(change.key, change.value)) {
+        const auto validation = Slic3r::AI::Apply::AllowlistRegistry::validate_value(change.key, change.value);
+        if (!validation.valid) {
             error_message = "invalid value for key: " + change.key;
+            if (!validation.error_message.empty())
+                error_message += " (" + validation.error_message + ")";
             return false;
         }
 
