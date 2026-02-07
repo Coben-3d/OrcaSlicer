@@ -4,6 +4,7 @@
 #include <string>
 
 #include "../../../ai/providers/fake_provider.h"
+#include "../../../ai/validation/response_validator.h"
 #include <wx/panel.h>
 
 class wxButton;
@@ -36,6 +37,7 @@ private:
     std::string m_last_geometry_insights_json;
     std::string m_last_ai_response_json;
     Slic3r::AI::Providers::FakeProvider m_fake_provider;
+    Slic3r::AI::Validation::ResponseValidator m_response_validator;
 };
 
 } // namespace GUI

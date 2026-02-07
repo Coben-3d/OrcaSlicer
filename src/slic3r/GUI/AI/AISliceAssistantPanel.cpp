@@ -10,8 +10,28 @@
 #include <wx/sizer.h>
 #include <wx/textctrl.h>
 
+#include <sstream>
+
 namespace Slic3r {
 namespace GUI {
+
+namespace {
+
+std::string build_repair_request(const std::string& original_user_message,
+                                 const std::string& invalid_output_json,
+                                 const std::vector<std::string>& errors)
+{
+    std::ostringstream oss;
+    oss << "repair_request: return only valid contract v0.1.0 JSON.\n";
+    oss << "original_user_message:\n" << original_user_message << "\n";
+    oss << "invalid_output:\n" << invalid_output_json << "\n";
+    oss << "validation_errors:\n";
+    for (const std::string& err : errors)
+        oss << "- " << err << "\n";
+    return oss.str();
+}
+
+} // namespace
 
 AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     : wxPanel(parent, wxID_ANY)
@@ -59,14 +79,35 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
         m_last_context_snapshot_json,
         m_last_geometry_insights_json
     };
-    m_last_ai_response_json = m_fake_provider.run(request);
+    std::string provider_output = m_fake_provider.run(request);
+    Slic3r::AI::Validation::ValidationResult validation = m_response_validator.validate(provider_output);
 
-    try {
-        const nlohmann::json parsed = nlohmann::json::parse(m_last_ai_response_json);
-        const std::string summary = parsed.value("summary", "Reponse provider recue.");
-        append_history_line("Assistant: " + wxString::FromUTF8(summary.c_str()));
-    } catch (...) {
-        append_history_line("Assistant: reponse provider invalide.");
+    bool repaired = false;
+    int repairs_attempted = 0;
+    while (!validation.valid && repairs_attempted < 2) {
+        ++repairs_attempted;
+        const Slic3r::AI::Providers::ProviderRequest repair_request{
+            build_repair_request(message.ToStdString(), provider_output, validation.errors),
+            m_last_context_snapshot_json,
+            m_last_geometry_insights_json
+        };
+        provider_output = m_fake_provider.run(repair_request);
+        validation = m_response_validator.validate(provider_output);
+    }
+    repaired = validation.valid && repairs_attempted > 0;
+
+    m_last_ai_response_json = provider_output;
+    if (validation.valid) {
+        try {
+            const nlohmann::json parsed = nlohmann::json::parse(m_last_ai_response_json);
+            const std::string summary = parsed.value("summary", "Reponse provider recue.");
+            append_history_line("Assistant: " + wxString::FromUTF8(summary.c_str()));
+        } catch (...) {
+            append_history_line("Assistant: reponse provider invalide.");
+        }
+        append_history_line(repaired ? "Status: Repaired" : "Status: Valid");
+    } else {
+        append_history_line("Status: Rejected");
     }
 
     m_input->Clear();
