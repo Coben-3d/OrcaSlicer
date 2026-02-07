@@ -118,6 +118,15 @@ std::string build_repair_request(const std::string& original_user_message,
     return oss.str();
 }
 
+std::string compact_json_value(const json& value)
+{
+    std::string dumped = value.dump();
+    constexpr size_t max_size = 56;
+    if (dumped.size() <= max_size)
+        return dumped;
+    return dumped.substr(0, max_size - 3) + "...";
+}
+
 } // namespace
 
 AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
@@ -136,8 +145,8 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_change_details = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
     m_change_details->SetMinSize(wxSize(-1, FromDIP(95)));
 
-    m_apply   = new wxButton(this, wxID_ANY, "Apply");
-    m_undo    = new wxButton(this, wxID_ANY, "Undo");
+    m_apply   = new wxButton(this, wxID_ANY, "Apply Selected");
+    m_undo    = new wxButton(this, wxID_ANY, "Undo Last Apply");
 
     m_input   = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
     m_send    = new wxButton(this, wxID_ANY, "Send");
@@ -275,11 +284,14 @@ void AISliceAssistantPanel::on_apply(wxCommandEvent& event)
 {
     wxUnusedVar(event);
 
-    std::string error;
-    if (apply_selected_changes_atomically(error)) {
-        append_history_line("System: recommendations applied.");
+    size_t applied_count = 0;
+    std::vector<std::string> errors;
+    if (apply_selected_changes_atomically(applied_count, errors)) {
+        append_history_line(wxString::Format("Applied %u changes", static_cast<unsigned int>(applied_count)));
     } else {
-        append_history_line("System: apply failed - " + wxString::FromUTF8(error.c_str()));
+        append_history_line("Error list:");
+        for (const std::string& err : errors)
+            append_history_line("- " + wxString::FromUTF8(err.c_str()));
     }
 }
 
@@ -289,9 +301,10 @@ void AISliceAssistantPanel::on_undo(wxCommandEvent& event)
 
     std::string error;
     if (undo_last_apply_atomically(error)) {
-        append_history_line("System: undo completed.");
+        append_history_line("Undo successful");
     } else {
-        append_history_line("System: undo failed - " + wxString::FromUTF8(error.c_str()));
+        append_history_line("Error list:");
+        append_history_line("- " + wxString::FromUTF8(error.c_str()));
     }
 }
 
@@ -351,6 +364,16 @@ void AISliceAssistantPanel::populate_recommendations_from_response(const nlohman
                     change.tags.push_back(tag.get<std::string>());
             }
         }
+        if (!Slic3r::AI::Apply::AllowlistRegistry::is_allowed(change.key)) {
+            change.blocked = true;
+            change.blocked_reason = "not allowlisted";
+        } else {
+            const auto value_validation = Slic3r::AI::Apply::AllowlistRegistry::validate_value(change.key, change.value);
+            if (!value_validation.valid) {
+                change.blocked = true;
+                change.blocked_reason = value_validation.error_message.empty() ? "invalid value" : value_validation.error_message;
+            }
+        }
 
         if (change.key.empty())
             continue;
@@ -361,8 +384,15 @@ void AISliceAssistantPanel::populate_recommendations_from_response(const nlohman
     for (size_t i = 0; i < m_recommended_changes.size(); ++i) {
         const auto& change = m_recommended_changes[i];
         const std::string label = Slic3r::AI::Apply::AllowlistRegistry::label_for(change.key);
-        std::string display = label.empty() ? change.key : (label + " [" + change.key + "]");
-        m_recommended_changes_list->Append(wxString::FromUTF8(display.c_str()));
+        std::ostringstream display;
+        if (change.blocked)
+            display << "[BLOCKED] ";
+        display << (label.empty() ? change.key : label) << " [" << change.key << "]";
+        display << " = " << compact_json_value(change.value);
+        display << " | conf " << std::fixed << std::setprecision(2) << change.confidence;
+        if (change.blocked && !change.blocked_reason.empty())
+            display << " | " << change.blocked_reason;
+        m_recommended_changes_list->Append(wxString::FromUTF8(display.str().c_str()));
         m_recommended_changes_list->Check(static_cast<unsigned int>(i), true);
     }
 
@@ -397,6 +427,9 @@ void AISliceAssistantPanel::update_change_details(int index)
     details << "Impact (Q/T/R): " << change.quality << "/" << change.time << "/" << change.risk << "\\n";
     details << "Confidence: " << std::setprecision(3) << change.confidence << "\\n";
     details << "User confirmation: " << (change.requires_user_confirmation ? "yes" : "no") << "\\n";
+    details << "Blocked: " << (change.blocked ? "yes" : "no") << "\\n";
+    if (change.blocked && !change.blocked_reason.empty())
+        details << "Blocked reason: " << change.blocked_reason << "\\n";
     if (!change.tags.empty()) {
         details << "Tags: ";
         for (size_t i = 0; i < change.tags.size(); ++i) {
@@ -412,15 +445,18 @@ void AISliceAssistantPanel::update_change_details(int index)
     m_change_details->SetValue(wxString::FromUTF8(details.str().c_str()));
 }
 
-bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error_message)
+bool AISliceAssistantPanel::apply_selected_changes_atomically(size_t& applied_count, std::vector<std::string>& error_list)
 {
+    applied_count = 0;
+    error_list.clear();
+
     if (m_plater == nullptr) {
-        error_message = "plater unavailable";
+        error_list.emplace_back("plater unavailable");
         return false;
     }
 
     if (m_recommended_changes.empty()) {
-        error_message = "no recommendations to apply";
+        error_list.emplace_back("no recommendations to apply");
         return false;
     }
 
@@ -429,34 +465,37 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
 
     auto* bundle = wxGetApp().preset_bundle;
     if (bundle == nullptr) {
-        error_message = "preset bundle unavailable";
+        error_list.emplace_back("preset bundle unavailable");
         return false;
     }
 
     const int selected_object_idx = m_plater->get_selected_object_idx();
+    bool has_checked_changes = false;
 
     for (size_t i = 0; i < m_recommended_changes.size(); ++i) {
         if (!m_recommended_changes_list->IsChecked(static_cast<unsigned int>(i)))
             continue;
+        has_checked_changes = true;
 
         const RecommendedChange& change = m_recommended_changes[i];
 
         if (!Slic3r::AI::Apply::AllowlistRegistry::is_allowed(change.key)) {
-            error_message = "key not allowed: " + change.key;
-            return false;
+            error_list.emplace_back("key not allowed: " + change.key);
+            continue;
         }
         const auto validation = Slic3r::AI::Apply::AllowlistRegistry::validate_value(change.key, change.value);
         if (!validation.valid) {
-            error_message = "invalid value for key: " + change.key;
+            std::string msg = "invalid value for key: " + change.key;
             if (!validation.error_message.empty())
-                error_message += " (" + validation.error_message + ")";
-            return false;
+                msg += " (" + validation.error_message + ")";
+            error_list.push_back(std::move(msg));
+            continue;
         }
 
         ApplyScope scope;
         if (!scope_from_string(change.applies_to, scope)) {
-            error_message = "unknown scope: " + change.applies_to;
-            return false;
+            error_list.emplace_back("unknown scope: " + change.applies_to + " for key: " + change.key);
+            continue;
         }
 
         ConfigBase* target_config = nullptr;
@@ -470,26 +509,26 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
         } else {
             object_idx = selected_object_idx;
             if (object_idx < 0 || object_idx >= static_cast<int>(m_plater->model().objects.size())) {
-                error_message = "object scope requested but no object is selected";
-                return false;
+                error_list.emplace_back("object scope requested but no object is selected for key: " + change.key);
+                continue;
             }
             ModelObject* object = m_plater->model().objects[static_cast<size_t>(object_idx)];
             if (object == nullptr) {
-                error_message = "selected object not available";
-                return false;
+                error_list.emplace_back("selected object not available for key: " + change.key);
+                continue;
             }
             target_config = static_cast<ConfigBase*>(const_cast<DynamicPrintConfig*>(&object->config.get()));
         }
 
         if (target_config == nullptr || !target_config->has(change.key)) {
-            error_message = "target does not support key: " + change.key;
-            return false;
+            error_list.emplace_back("target does not support key: " + change.key);
+            continue;
         }
 
         std::string serialized_new;
         if (!serialize_value_for_setting(change.value, change.value_type, serialized_new)) {
-            error_message = "cannot serialize value for key: " + change.key;
-            return false;
+            error_list.emplace_back("cannot serialize value for key: " + change.key);
+            continue;
         }
 
         bool merged = false;
@@ -505,8 +544,14 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
         }
     }
 
+    if (!has_checked_changes) {
+        error_list.emplace_back("no checked changes");
+        return false;
+    }
+    if (!error_list.empty())
+        return false;
     if (prepared.empty()) {
-        error_message = "no checked changes";
+        error_list.emplace_back("no valid changes to apply");
         return false;
     }
 
@@ -515,7 +560,7 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
     for (const PreparedOperation& op : prepared) {
         const ConfigOption* original = op.target_config->option(op.key);
         if (original == nullptr) {
-            error_message = "cannot snapshot key: " + op.key;
+            error_list.emplace_back("cannot snapshot key: " + op.key);
             return false;
         }
         backups.push_back(AppliedValueBackup{op.scope, op.object_idx, op.key, original->serialize()});
@@ -544,7 +589,7 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
                     } catch (...) {}
                 }
             }
-            error_message = std::string("apply failed on key '") + op.key + "': " + ex.what();
+            error_list.push_back(std::string("apply failed on key '") + op.key + "': " + ex.what());
             return false;
         }
     }
@@ -564,6 +609,7 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
     }
 
     refresh_plater_after_changes(m_last_apply_touched_global_or_profile, m_last_apply_touched_object, m_last_apply_object_idx);
+    applied_count = prepared.size();
     return true;
 }
 

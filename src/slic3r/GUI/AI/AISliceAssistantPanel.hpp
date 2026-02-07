@@ -42,6 +42,8 @@ private:
         std::string applies_to;
         std::vector<std::string> tags;
         bool requires_user_confirmation { false };
+        bool blocked { false };
+        std::string blocked_reason;
     };
 
 public:
@@ -72,7 +74,7 @@ private:
     void clear_recommendations();
     void populate_recommendations_from_response(const nlohmann::json& response_json);
     void update_change_details(int index);
-    bool apply_selected_changes_atomically(std::string& error_message);
+    bool apply_selected_changes_atomically(size_t& applied_count, std::vector<std::string>& error_list);
     bool undo_last_apply_atomically(std::string& error_message);
     void refresh_plater_after_changes(bool touched_global_or_profile, bool touched_object, int object_idx);
 
