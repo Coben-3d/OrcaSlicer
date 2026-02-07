@@ -9,6 +9,7 @@
 #include "../../../ai/validation/response_validator.h"
 #include "nlohmann/json.hpp"
 #include <wx/panel.h>
+#include <wx/window.h>
 
 class wxButton;
 class wxCheckListBox;

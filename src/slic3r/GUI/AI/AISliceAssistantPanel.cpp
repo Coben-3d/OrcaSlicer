@@ -9,14 +9,19 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "nlohmann/json.hpp"
 
+#include <wx/event.h>
 #include <wx/button.h>
 #include <wx/checklst.h>
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
+#include <wx/panel.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
+#include <wx/string.h>
 #include <wx/textctrl.h>
+#include <wx/utils.h>
 
+#include <exception>
 #include <iomanip>
 #include <sstream>
 #include <utility>
@@ -466,7 +471,7 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
                 error_message = "selected object not available";
                 return false;
             }
-            target_config = &object->config;
+            target_config = static_cast<ConfigBase*>(const_cast<DynamicPrintConfig*>(&object->config.get()));
         }
 
         if (target_config == nullptr || !target_config->has(change.key)) {
@@ -524,7 +529,7 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(std::string& error
                 } else if (backup.object_idx >= 0 && backup.object_idx < static_cast<int>(m_plater->model().objects.size())) {
                     ModelObject* object = m_plater->model().objects[static_cast<size_t>(backup.object_idx)];
                     if (object != nullptr)
-                        rollback_config = &object->config;
+                        rollback_config = static_cast<ConfigBase*>(const_cast<DynamicPrintConfig*>(&object->config.get()));
                 }
                 if (rollback_config != nullptr) {
                     try {
@@ -593,7 +598,7 @@ bool AISliceAssistantPanel::undo_last_apply_atomically(std::string& error_messag
                 error_message = "object snapshot missing";
                 return false;
             }
-            target_config = &object->config;
+            target_config = static_cast<ConfigBase*>(const_cast<DynamicPrintConfig*>(&object->config.get()));
         }
 
         if (target_config == nullptr || !target_config->has(backup.key)) {
