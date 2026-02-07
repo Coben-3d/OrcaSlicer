@@ -27,14 +27,23 @@ std::string FakeProvider::run(const ProviderRequest& request) const
     const bool has_context  = !request.context_snapshot_json.empty();
     const bool has_geometry = !request.geometry_insights_json.empty();
     const std::string message_lc = to_lower(request.user_message);
+    const bool is_repair_request =
+        message_lc.find("repair_request") != std::string::npos ||
+        message_lc.find("output corrected json only") != std::string::npos;
 
-    const bool prefers_quality = message_lc.find("quality") != std::string::npos;
-    const bool prefers_speed   = message_lc.find("speed") != std::string::npos || message_lc.find("faster") != std::string::npos;
+    bool prefers_quality = message_lc.find("quality") != std::string::npos;
+    bool prefers_speed   = message_lc.find("speed") != std::string::npos || message_lc.find("faster") != std::string::npos;
+    if (is_repair_request) {
+        prefers_quality = false;
+        prefers_speed   = false;
+    }
 
     json response = json::object();
     response["contract_version"] = "0.1.0";
 
-    if (prefers_quality) {
+    if (is_repair_request) {
+        response["summary"] = "Corrected contract v0.1.0 response generated after validation errors.";
+    } else if (prefers_quality) {
         response["summary"] = "Prioriser la qualite avec une couche plus fine et un remplissage plus regulier.";
     } else if (prefers_speed) {
         response["summary"] = "Prioriser le temps d'impression avec une couche plus haute et un remplissage simplifie.";

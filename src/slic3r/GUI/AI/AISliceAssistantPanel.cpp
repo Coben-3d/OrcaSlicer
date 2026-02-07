@@ -107,7 +107,9 @@ std::string build_repair_request(const std::string& original_user_message,
                                  const std::vector<std::string>& errors)
 {
     std::ostringstream oss;
-    oss << "repair_request: return only valid contract v0.1.0 JSON.\\n";
+    oss << "repair_request\\n";
+    oss << "instruction: output corrected JSON only\\n";
+    oss << "target_contract_version: 0.1.0\\n";
     oss << "original_user_message:\\n" << original_user_message << "\\n";
     oss << "invalid_output:\\n" << invalid_output_json << "\\n";
     oss << "validation_errors:\\n";
@@ -216,10 +218,12 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
             clear_recommendations();
             append_history_line("Assistant: reponse provider invalide.");
         }
-        append_history_line(repaired ? "Status: Repaired" : "Status: Valid");
+        append_history_line(repaired ? "Repaired" : "Valid");
     } else {
         clear_recommendations();
-        append_history_line("Status: Rejected");
+        append_history_line("Rejected");
+        for (const std::string& error : validation.errors)
+            append_history_line("Validation error: " + wxString::FromUTF8(error.c_str()));
     }
 
     m_input->Clear();
