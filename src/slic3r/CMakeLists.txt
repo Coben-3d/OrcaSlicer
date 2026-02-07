@@ -30,6 +30,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/AMSSetting.hpp
     GUI/AmsWidgets.cpp
     GUI/AmsWidgets.hpp
+    GUI/AI/AISliceAssistantPanel.cpp
+    GUI/AI/AISliceAssistantPanel.hpp
     GUI/Auxiliary.cpp
     GUI/AuxiliaryDataViewModel.cpp
     GUI/AuxiliaryDataViewModel.hpp

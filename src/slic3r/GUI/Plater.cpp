@@ -162,6 +162,7 @@
 #include "StepMeshDialog.hpp"
 #include "FilamentMapDialog.hpp"
 #include "CloneDialog.hpp"
+#include "AI/AISliceAssistantPanel.hpp"
 
 #include "DeviceCore/DevFilaSystem.h"
 #include "DeviceCore/DevManager.h"
@@ -4181,6 +4182,7 @@ struct Plater::priv
     // PIMPL back pointer ("Q-Pointer")
     Plater *q;
     Sidebar *  sidebar;
+    AISliceAssistantPanel* ai_slice_assistant_panel { nullptr };
     MainFrame *main_frame;
 
     MenuFactory menus;
@@ -4352,6 +4354,8 @@ struct Plater::priv
     void enable_sidebar(bool enabled);
     void collapse_sidebar(bool collapse);
     void update_sidebar(bool force_update = false);
+    void show_ai_slice_assistant_panel(bool show);
+    bool is_ai_slice_assistant_panel_shown();
     void reset_window_layout();
     Sidebar::DockingState get_sidebar_docking_state();
 
@@ -4876,6 +4880,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
 
     update();
 
+    ai_slice_assistant_panel = new AISliceAssistantPanel(q);
+
     // Orca: Make sidebar dockable
     m_aui_mgr.AddPane(sidebar, wxAuiPaneInfo()
                                    .Name("sidebar")
@@ -4885,6 +4891,16 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
                                    .BottomDockable(false)
                                    .Floatable(true)
                                    .BestSize(wxSize(42 * wxGetApp().em_unit(), 90 * wxGetApp().em_unit())));
+    m_aui_mgr.AddPane(ai_slice_assistant_panel, wxAuiPaneInfo()
+                                                  .Name("ai_slice_assistant")
+                                                  .Caption(_L("AI Slice Assistant"))
+                                                  .Right()
+                                                  .CloseButton(true)
+                                                  .TopDockable(false)
+                                                  .BottomDockable(false)
+                                                  .Floatable(true)
+                                                  .BestSize(wxSize(30 * wxGetApp().em_unit(), 36 * wxGetApp().em_unit()))
+                                                  .Hide());
 
     auto* panel_sizer = new wxBoxSizer(wxHORIZONTAL);
     panel_sizer->Add(view3D, 1, wxEXPAND | wxALL, 0);
@@ -5547,6 +5563,22 @@ void Plater::priv::update_sidebar(bool force_update) {
         notification_manager->set_sidebar_collapsed(sidebar.IsShown());
         m_aui_mgr.Update();
     }
+}
+
+void Plater::priv::show_ai_slice_assistant_panel(bool show)
+{
+    auto& pane = m_aui_mgr.GetPane(ai_slice_assistant_panel);
+    if (!pane.IsOk())
+        return;
+
+    pane.Show(show);
+    m_aui_mgr.Update();
+}
+
+bool Plater::priv::is_ai_slice_assistant_panel_shown()
+{
+    auto& pane = m_aui_mgr.GetPane(ai_slice_assistant_panel);
+    return pane.IsOk() && pane.IsShown();
 }
 
 void Plater::priv::reset_window_layout()
@@ -14082,6 +14114,9 @@ void Plater::enable_sidebar(bool enabled) { p->enable_sidebar(enabled); }
 bool Plater::is_sidebar_collapsed() const { return p->sidebar_layout.is_collapsed; }
 void Plater::collapse_sidebar(bool collapse) { p->collapse_sidebar(collapse); }
 Sidebar::DockingState Plater::get_sidebar_docking_state() const { return p->get_sidebar_docking_state(); }
+bool Plater::is_ai_slice_assistant_panel_shown() { return p->is_ai_slice_assistant_panel_shown(); }
+void Plater::show_ai_slice_assistant_panel(bool show) { p->show_ai_slice_assistant_panel(show); }
+void Plater::toggle_ai_slice_assistant_panel() { p->show_ai_slice_assistant_panel(!p->is_ai_slice_assistant_panel_shown()); }
 
 void Plater::reset_window_layout() { p->reset_window_layout(); }
 
