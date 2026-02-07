@@ -722,6 +722,8 @@ else ()
 endif ()
 target_include_directories(libslic3r_gui PRIVATE Utils ${CMAKE_CURRENT_BINARY_DIR})
 target_sources(libslic3r_gui PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ai/apply/allowlist_registry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/apply/allowlist_registry.h
     ${CMAKE_SOURCE_DIR}/src/ai/context_snapshot.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/context_snapshot.h
     ${CMAKE_SOURCE_DIR}/src/ai/validation/response_validator.cpp
