@@ -14,9 +14,9 @@
 
 #include <wx/event.h>
 #include <wx/button.h>
-#include <wx/checklst.h>
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
+#include <wx/dataview.h>
 #include <wx/filedlg.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
@@ -131,6 +131,14 @@ std::string compact_json_value(const json& value)
     if (dumped.size() <= max_size)
         return dumped;
     return dumped.substr(0, max_size - 3) + "...";
+}
+
+std::string compact_status_reason(const std::string& reason)
+{
+    constexpr size_t max_size = 40;
+    if (reason.size() <= max_size)
+        return reason;
+    return reason.substr(0, max_size - 3) + "...";
 }
 
 bool is_safe_mode_enabled()
@@ -261,7 +269,11 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_history = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
 
     auto* recommended_label = new wxStaticText(this, wxID_ANY, "Recommended changes");
-    m_recommended_changes_list = new wxCheckListBox(this, wxID_ANY);
+    m_recommended_changes_list = new wxDataViewListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxDV_ROW_LINES | wxDV_VERT_RULES);
+    m_recommended_changes_list->AppendToggleColumn("Enabled", wxDATAVIEW_CELL_ACTIVATABLE, FromDIP(76), wxALIGN_CENTER, wxDATAVIEW_COL_RESIZABLE);
+    m_recommended_changes_list->AppendTextColumn("Setting", wxDATAVIEW_CELL_INERT, FromDIP(240), wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_recommended_changes_list->AppendTextColumn("Value", wxDATAVIEW_CELL_INERT, FromDIP(160), wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
+    m_recommended_changes_list->AppendTextColumn("Status", wxDATAVIEW_CELL_INERT, FromDIP(200), wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
     m_recommended_changes_list->SetMinSize(wxSize(-1, FromDIP(130)));
 
     m_change_details = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
@@ -316,8 +328,8 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_export_debug->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_export_debug_bundle, this);
     m_apply->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_apply, this);
     m_undo->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_undo, this);
-    m_recommended_changes_list->Bind(wxEVT_LISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
-    m_recommended_changes_list->Bind(wxEVT_CHECKLISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
+    m_recommended_changes_list->Bind(wxEVT_DATAVIEW_SELECTION_CHANGED, &AISliceAssistantPanel::on_change_list_event, this);
+    m_recommended_changes_list->Bind(wxEVT_DATAVIEW_ITEM_VALUE_CHANGED, &AISliceAssistantPanel::on_change_list_event, this);
     Bind(wxEVT_SHOW, &AISliceAssistantPanel::on_panel_show, this);
     Bind(wxEVT_SIZE, &AISliceAssistantPanel::on_panel_size, this);
 
@@ -555,9 +567,15 @@ void AISliceAssistantPanel::on_undo(wxCommandEvent& event)
     }
 }
 
-void AISliceAssistantPanel::on_change_list_event(wxCommandEvent& event)
+void AISliceAssistantPanel::on_change_list_event(wxDataViewEvent& event)
 {
-    update_change_details(event.GetInt());
+    int index = wxNOT_FOUND;
+    if (event.GetItem().IsOk())
+        index = m_recommended_changes_list->ItemToRow(event.GetItem());
+    if (index == wxNOT_FOUND)
+        index = m_recommended_changes_list->GetSelectedRow();
+    update_change_details(index);
+    event.Skip();
 }
 
 void AISliceAssistantPanel::append_history_line(const wxString& line)
@@ -574,7 +592,7 @@ void AISliceAssistantPanel::clear_recommendations()
 {
     m_recommended_changes.clear();
     if (m_recommended_changes_list)
-        m_recommended_changes_list->Clear();
+        m_recommended_changes_list->DeleteAllItems();
     if (m_change_details)
         m_change_details->Clear();
 }
@@ -643,20 +661,25 @@ void AISliceAssistantPanel::populate_recommendations_from_response(const nlohman
     for (size_t i = 0; i < m_recommended_changes.size(); ++i) {
         const auto& change = m_recommended_changes[i];
         const std::string label = Slic3r::AI::Apply::AllowlistRegistry::label_for(change.key);
-        std::ostringstream display;
-        if (change.blocked)
-            display << "[BLOCKED] ";
-        display << (label.empty() ? change.key : label) << " [" << change.key << "]";
-        display << " = " << compact_json_value(change.value);
-        display << " | conf " << std::fixed << std::setprecision(2) << change.confidence;
-        if (change.blocked && !change.blocked_reason.empty())
-            display << " | " << change.blocked_reason;
-        m_recommended_changes_list->Append(wxString::FromUTF8(display.str().c_str()));
-        m_recommended_changes_list->Check(static_cast<unsigned int>(i), true);
+        const std::string setting = label.empty() ? change.key : (label + " [" + change.key + "]");
+        const std::string value = compact_json_value(change.value);
+        std::string status = "OK";
+        if (change.blocked) {
+            status = "BLOCKED";
+            if (!change.blocked_reason.empty())
+                status += ": " + compact_status_reason(change.blocked_reason);
+        }
+
+        wxVector<wxVariant> row;
+        row.push_back(wxVariant(!change.blocked));
+        row.push_back(wxVariant(wxString::FromUTF8(setting.c_str())));
+        row.push_back(wxVariant(wxString::FromUTF8(value.c_str())));
+        row.push_back(wxVariant(wxString::FromUTF8(status.c_str())));
+        m_recommended_changes_list->AppendItem(row);
     }
 
     if (!m_recommended_changes.empty()) {
-        m_recommended_changes_list->SetSelection(0);
+        m_recommended_changes_list->SelectRow(0);
         update_change_details(0);
     }
 }
@@ -732,7 +755,9 @@ bool AISliceAssistantPanel::apply_selected_changes_atomically(size_t& applied_co
     bool has_checked_changes = false;
 
     for (size_t i = 0; i < m_recommended_changes.size(); ++i) {
-        if (!m_recommended_changes_list->IsChecked(static_cast<unsigned int>(i)))
+        wxVariant enabled_variant;
+        m_recommended_changes_list->GetValue(enabled_variant, static_cast<unsigned int>(i), 0);
+        if (!enabled_variant.GetBool())
             continue;
         has_checked_changes = true;
 

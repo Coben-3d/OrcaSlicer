@@ -12,7 +12,8 @@
 #include <wx/window.h>
 
 class wxButton;
-class wxCheckListBox;
+class wxDataViewEvent;
+class wxDataViewListCtrl;
 class wxTextCtrl;
 class wxCommandEvent;
 class wxKeyEvent;
@@ -75,7 +76,7 @@ private:
     void on_export_debug_bundle(wxCommandEvent& event);
     void on_apply(wxCommandEvent& event);
     void on_undo(wxCommandEvent& event);
-    void on_change_list_event(wxCommandEvent& event);
+    void on_change_list_event(wxDataViewEvent& event);
 
     void append_history_line(const wxString& line);
     void clear_recommendations();
@@ -87,7 +88,7 @@ private:
 
     Plater*     m_plater { nullptr };
     wxTextCtrl* m_history { nullptr };
-    wxCheckListBox* m_recommended_changes_list { nullptr };
+    wxDataViewListCtrl* m_recommended_changes_list { nullptr };
     wxTextCtrl* m_change_details { nullptr };
     wxTextCtrl* m_input   { nullptr };
     wxButton*   m_send    { nullptr };
