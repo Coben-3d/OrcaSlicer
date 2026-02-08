@@ -5,9 +5,11 @@
 #include "Plater.hpp"
 #include "MsgDialog.hpp"
 #include "I18N.hpp"
+#include "../../ai/providers/openai_compat/openai_compat_provider.h"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Format/DRC.hpp"
 #include <wx/language.h>
+#include <wx/textctrl.h>
 #include "OG_CustomCtrl.hpp"
 #include "wx/graphics.h"
 #include <wx/listimpl.cpp>
@@ -18,6 +20,9 @@
 #include "slic3r/Utils/bambu_networking.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
 #include "DownloadProgressDialog.hpp"
+
+#include <algorithm>
+#include <thread>
 
 #ifdef __WINDOWS__
 #ifdef _MSW_DARK_MODE
@@ -1491,6 +1496,279 @@ void PreferencesDialog::create_items()
                                                       _L("Store authentication tokens in an encrypted file instead of the system keychain. (Requires restart)"),
                                                       SETTING_USE_ENCRYPTED_TOKEN_FILE);
     g_sizer->Add(item_token_storage);
+
+    //// ONLINE > AI
+    g_sizer->Add(create_item_title(_L("AI")), 1, wxEXPAND);
+
+    auto ensure_app_default = [this](const std::string& key, const std::string& value) {
+        if (app_config->get(key).empty())
+            app_config->set(key, value);
+    };
+
+    ensure_app_default("ai_provider_type", "fake");
+    ensure_app_default("ai_provider_base_url", "https://api.openai.com/v1");
+    ensure_app_default("ai_provider_model", "gpt-4.1-mini");
+    ensure_app_default("ai_provider_timeout_seconds", "30");
+    ensure_app_default("ai_provider_max_tokens", "600");
+    ensure_app_default("ai_provider_temperature", "0.2");
+    ensure_app_default("ai_provider_api_key_storage", "plain");
+
+    auto item_ai_provider_type = create_item_combobox(
+        _L("AI provider"),
+        _L("Select which provider is used by AI Slice Assistant."),
+        "ai_provider_type",
+        {_L("Fake"), _L("OpenAI-compatible")},
+        {"fake", "openai_compat"});
+    g_sizer->Add(item_ai_provider_type);
+
+    auto add_ai_text_row =
+        [this, g_sizer](const wxString& title,
+                        const wxString& tooltip,
+                        const wxString& initial_value,
+                        long style,
+                        const std::function<void(const wxString&)>& on_commit) -> wxTextCtrl* {
+            auto* row = new wxBoxSizer(wxHORIZONTAL);
+            row->AddSpacer(FromDIP(DESIGN_LEFT_MARGIN));
+
+            auto* label = new wxStaticText(m_parent, wxID_ANY, title, wxDefaultPosition, DESIGN_TITLE_SIZE, wxST_NO_AUTORESIZE);
+            label->SetForegroundColour(DESIGN_GRAY900_COLOR);
+            label->SetFont(::Label::Body_14);
+            label->SetToolTip(tooltip);
+            label->Wrap(DESIGN_TITLE_SIZE.x);
+
+            auto* input = new wxTextCtrl(m_parent, wxID_ANY, initial_value, wxDefaultPosition, wxSize(FromDIP(260), -1), style);
+            input->SetToolTip(tooltip);
+
+            row->Add(label, 0, wxALIGN_CENTER_VERTICAL);
+            row->Add(input, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(5));
+            g_sizer->Add(row);
+
+            input->Bind(wxEVT_TEXT_ENTER, [on_commit, input](wxCommandEvent& e) {
+                on_commit(input->GetValue());
+                e.Skip();
+            });
+            input->Bind(wxEVT_KILL_FOCUS, [on_commit, input](wxFocusEvent& e) {
+                on_commit(input->GetValue());
+                e.Skip();
+            });
+
+            return input;
+        };
+
+    auto store_app_value = [this](const std::string& key, const wxString& value) {
+        app_config->set(key, value.ToStdString());
+        app_config->save();
+    };
+
+    wxTextCtrl* ai_base_url_ctrl = add_ai_text_row(
+        _L("Base URL"),
+        _L("OpenAI-compatible base URL, for example https://api.openai.com/v1"),
+        wxString::FromUTF8(app_config->get("ai_provider_base_url").c_str()),
+        wxTE_PROCESS_ENTER,
+        [store_app_value](const wxString& value) {
+            store_app_value("ai_provider_base_url", value);
+        });
+
+    wxTextCtrl* ai_model_ctrl = add_ai_text_row(
+        _L("Model"),
+        _L("Model name used for chat completions."),
+        wxString::FromUTF8(app_config->get("ai_provider_model").c_str()),
+        wxTE_PROCESS_ENTER,
+        [store_app_value](const wxString& value) {
+            store_app_value("ai_provider_model", value);
+        });
+
+    wxTextCtrl* ai_timeout_ctrl = add_ai_text_row(
+        _L("Timeout (s)"),
+        _L("HTTP timeout in seconds (5 to 300)."),
+        wxString::FromUTF8(app_config->get("ai_provider_timeout_seconds").c_str()),
+        wxTE_PROCESS_ENTER,
+        [this, store_app_value](const wxString& value) {
+            long parsed = 30;
+            if (!value.ToLong(&parsed))
+                parsed = 30;
+            parsed = std::max(5L, std::min(300L, parsed));
+            store_app_value("ai_provider_timeout_seconds", wxString::Format("%ld", parsed));
+        });
+
+    wxTextCtrl* ai_max_tokens_ctrl = add_ai_text_row(
+        _L("Max tokens"),
+        _L("Maximum tokens for provider response (1 to 4096)."),
+        wxString::FromUTF8(app_config->get("ai_provider_max_tokens").c_str()),
+        wxTE_PROCESS_ENTER,
+        [this, store_app_value](const wxString& value) {
+            long parsed = 600;
+            if (!value.ToLong(&parsed))
+                parsed = 600;
+            parsed = std::max(1L, std::min(4096L, parsed));
+            store_app_value("ai_provider_max_tokens", wxString::Format("%ld", parsed));
+        });
+
+    wxTextCtrl* ai_temperature_ctrl = add_ai_text_row(
+        _L("Temperature"),
+        _L("Sampling temperature from 0.0 to 2.0."),
+        wxString::FromUTF8(app_config->get("ai_provider_temperature").c_str()),
+        wxTE_PROCESS_ENTER,
+        [this, store_app_value](const wxString& value) {
+            double parsed = 0.2;
+            if (!value.ToDouble(&parsed))
+                parsed = 0.2;
+            parsed = std::max(0.0, std::min(2.0, parsed));
+            store_app_value("ai_provider_temperature", wxString::Format("%.2f", parsed));
+        });
+
+    std::string initial_api_key = app_config->get("ai_provider_api_key");
+#ifdef __APPLE__
+    if (initial_api_key.empty() && app_config->get("ai_provider_api_key_storage") == "keychain") {
+        std::string secure_error;
+        Slic3r::AI::Providers::OpenAICompatProvider::load_api_key_securely(initial_api_key, secure_error);
+    }
+#endif
+
+    wxTextCtrl* ai_api_key_ctrl = add_ai_text_row(
+        _L("API key"),
+        _L("Stored securely on macOS keychain when available."),
+        wxString::FromUTF8(initial_api_key.c_str()),
+        wxTE_PROCESS_ENTER | wxTE_PASSWORD,
+        [this](const wxString& value) {
+            const std::string api_key = value.ToStdString();
+            if (api_key.empty()) {
+                app_config->set("ai_provider_api_key", "");
+                app_config->set("ai_provider_api_key_storage", "plain");
+#ifdef __APPLE__
+                std::string clear_error;
+                Slic3r::AI::Providers::OpenAICompatProvider::clear_api_key_securely(clear_error);
+#endif
+                app_config->save();
+                return;
+            }
+
+#ifdef __APPLE__
+            std::string secure_error;
+            if (Slic3r::AI::Providers::OpenAICompatProvider::save_api_key_securely(api_key, secure_error)) {
+                app_config->set("ai_provider_api_key", "");
+                app_config->set("ai_provider_api_key_storage", "keychain");
+                app_config->save();
+                return;
+            }
+
+            app_config->set("ai_provider_api_key", api_key);
+            app_config->set("ai_provider_api_key_storage", "plain");
+            app_config->save();
+            MessageDialog dlg(this,
+                              _L("System keychain unavailable. API key is stored in plain app config."),
+                              _L("AI key storage warning"),
+                              wxOK | wxICON_WARNING);
+            dlg.ShowModal();
+#else
+            app_config->set("ai_provider_api_key", api_key);
+            app_config->set("ai_provider_api_key_storage", "plain");
+            app_config->save();
+            MessageDialog dlg(this,
+                              _L("Secure key storage is unavailable on this platform. API key is stored in plain app config."),
+                              _L("AI key storage warning"),
+                              wxOK | wxICON_WARNING);
+            dlg.ShowModal();
+#endif
+        });
+
+    auto item_ai_test = create_item_button(
+        _L("AI provider connection"),
+        _L("Test") + " " + dots,
+        "",
+        _L("Test AI provider connectivity"),
+        [this, ai_base_url_ctrl, ai_model_ctrl, ai_timeout_ctrl, ai_max_tokens_ctrl, ai_temperature_ctrl, ai_api_key_ctrl]() {
+            auto normalize_numeric = [this](wxTextCtrl* ctrl, const std::string& key, long default_value, long min_value, long max_value) -> long {
+                long parsed = default_value;
+                if (!ctrl->GetValue().ToLong(&parsed))
+                    parsed = default_value;
+                parsed = std::max(min_value, std::min(max_value, parsed));
+                app_config->set(key, std::to_string(parsed));
+                return parsed;
+            };
+
+            auto normalize_temperature = [this](wxTextCtrl* ctrl) -> double {
+                double parsed = 0.2;
+                if (!ctrl->GetValue().ToDouble(&parsed))
+                    parsed = 0.2;
+                parsed = std::max(0.0, std::min(2.0, parsed));
+                app_config->set("ai_provider_temperature", wxString::Format("%.2f", parsed).ToStdString());
+                return parsed;
+            };
+
+            const std::string provider_type = app_config->get("ai_provider_type");
+            const std::string base_url = ai_base_url_ctrl->GetValue().ToStdString();
+            const std::string model = ai_model_ctrl->GetValue().ToStdString();
+            const long timeout_seconds = normalize_numeric(ai_timeout_ctrl, "ai_provider_timeout_seconds", 30, 5, 300);
+            const int max_tokens = static_cast<int>(normalize_numeric(ai_max_tokens_ctrl, "ai_provider_max_tokens", 600, 1, 4096));
+            const double temperature = normalize_temperature(ai_temperature_ctrl);
+
+            // Persist typed values so Send and future sessions use the same provider config.
+            app_config->set("ai_provider_base_url", base_url);
+            app_config->set("ai_provider_model", model);
+
+            const std::string typed_api_key = ai_api_key_ctrl->GetValue().ToStdString();
+            if (!typed_api_key.empty()) {
+#ifdef __APPLE__
+                std::string secure_error;
+                if (Slic3r::AI::Providers::OpenAICompatProvider::save_api_key_securely(typed_api_key, secure_error)) {
+                    app_config->set("ai_provider_api_key", "");
+                    app_config->set("ai_provider_api_key_storage", "keychain");
+                } else {
+                    app_config->set("ai_provider_api_key", typed_api_key);
+                    app_config->set("ai_provider_api_key_storage", "plain");
+                }
+#else
+                app_config->set("ai_provider_api_key", typed_api_key);
+                app_config->set("ai_provider_api_key_storage", "plain");
+#endif
+            }
+            app_config->save();
+
+            std::string api_key = app_config->get("ai_provider_api_key");
+            if (api_key.empty()) {
+                std::string secure_error;
+                Slic3r::AI::Providers::OpenAICompatProvider::load_api_key_securely(api_key, secure_error);
+            }
+
+            std::thread([provider_type, base_url, model, timeout_seconds, max_tokens, temperature, api_key]() {
+                bool ok = false;
+                std::string error;
+
+                if (provider_type == "openai_compat") {
+                    Slic3r::AI::Providers::OpenAICompatConfig cfg;
+                    cfg.provider_type   = provider_type;
+                    cfg.base_url        = base_url;
+                    cfg.api_key         = api_key;
+                    cfg.model           = model;
+                    cfg.timeout_seconds = timeout_seconds;
+                    cfg.max_tokens      = max_tokens;
+                    cfg.temperature     = temperature;
+
+                    Slic3r::AI::Providers::OpenAICompatProvider provider(std::move(cfg));
+                    ok = provider.test_connection(error);
+                } else {
+                    ok = true;
+                }
+
+                wxGetApp().CallAfter([ok, error]() {
+                    if (ok) {
+                        MessageDialog dlg(wxGetApp().mainframe,
+                                          _L("AI provider connection succeeded."),
+                                          _L("AI connection test"),
+                                          wxOK | wxICON_INFORMATION);
+                        dlg.ShowModal();
+                    } else {
+                        MessageDialog dlg(wxGetApp().mainframe,
+                                          wxString::Format(_L("AI provider connection failed: %s"), wxString::FromUTF8(error.c_str())),
+                                          _L("AI connection test"),
+                                          wxOK | wxICON_ERROR);
+                        dlg.ShowModal();
+                    }
+                });
+            }).detach();
+        });
+    g_sizer->Add(item_ai_test);
 
     //// ONLINE > Network plugin
     g_sizer->Add(create_item_title(_L("Network plugin")), 1, wxEXPAND);

@@ -1,9 +1,11 @@
 #include "AISliceAssistantPanel.hpp"
 
 #include "../../../ai/context_snapshot.h"
+#include "../../../ai/providers/openai_compat/openai_compat_provider.h"
 #include "../GUI_App.hpp"
 #include "../Plater.hpp"
 
+#include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -127,6 +129,99 @@ std::string compact_json_value(const json& value)
     return dumped.substr(0, max_size - 3) + "...";
 }
 
+long parse_long_with_fallback(const std::string& value, long fallback, long min_value, long max_value)
+{
+    if (value.empty())
+        return fallback;
+    try {
+        long parsed = std::stol(value);
+        if (parsed < min_value)
+            return min_value;
+        if (parsed > max_value)
+            return max_value;
+        return parsed;
+    } catch (...) {
+        return fallback;
+    }
+}
+
+int parse_int_with_fallback(const std::string& value, int fallback, int min_value, int max_value)
+{
+    if (value.empty())
+        return fallback;
+    try {
+        int parsed = std::stoi(value);
+        if (parsed < min_value)
+            return min_value;
+        if (parsed > max_value)
+            return max_value;
+        return parsed;
+    } catch (...) {
+        return fallback;
+    }
+}
+
+double parse_double_with_fallback(const std::string& value, double fallback, double min_value, double max_value)
+{
+    if (value.empty())
+        return fallback;
+    try {
+        double parsed = std::stod(value);
+        if (parsed < min_value)
+            return min_value;
+        if (parsed > max_value)
+            return max_value;
+        return parsed;
+    } catch (...) {
+        return fallback;
+    }
+}
+
+std::string load_ai_provider_api_key(const Slic3r::AppConfig* app_config)
+{
+    if (app_config == nullptr)
+        return {};
+
+    std::string api_key = app_config->get("ai_provider_api_key");
+    if (!api_key.empty())
+        return api_key;
+
+    if (app_config->get("ai_provider_api_key_storage") == "keychain") {
+        std::string secure_error;
+        if (Slic3r::AI::Providers::OpenAICompatProvider::load_api_key_securely(api_key, secure_error))
+            return api_key;
+    }
+
+    return {};
+}
+
+std::string run_selected_provider(const Slic3r::AI::Providers::ProviderRequest& request,
+                                  Slic3r::AI::Providers::FakeProvider& fake_provider,
+                                  wxString& provider_name)
+{
+    provider_name = "Fake";
+    Slic3r::AppConfig* app_config = wxGetApp().app_config;
+    if (app_config == nullptr)
+        return fake_provider.run(request);
+
+    const std::string provider_type = app_config->get("ai_provider_type");
+    if (provider_type != "openai_compat")
+        return fake_provider.run(request);
+
+    Slic3r::AI::Providers::OpenAICompatConfig openai_config;
+    openai_config.provider_type   = provider_type;
+    openai_config.base_url        = app_config->get("ai_provider_base_url");
+    openai_config.model           = app_config->get("ai_provider_model");
+    openai_config.timeout_seconds = parse_long_with_fallback(app_config->get("ai_provider_timeout_seconds"), 30, 5, 300);
+    openai_config.max_tokens      = parse_int_with_fallback(app_config->get("ai_provider_max_tokens"), 600, 1, 4096);
+    openai_config.temperature     = parse_double_with_fallback(app_config->get("ai_provider_temperature"), 0.2, 0.0, 2.0);
+    openai_config.api_key         = load_ai_provider_api_key(app_config);
+
+    provider_name = "OpenAI-compatible";
+    Slic3r::AI::Providers::OpenAICompatProvider openai_provider(std::move(openai_config));
+    return openai_provider.run(request);
+}
+
 } // namespace
 
 AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
@@ -199,7 +294,8 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
         m_last_context_snapshot_json,
         m_last_geometry_insights_json
     };
-    std::string provider_output = m_fake_provider.run(request);
+    wxString provider_name;
+    std::string provider_output = run_selected_provider(request, m_fake_provider, provider_name);
     Slic3r::AI::Validation::ValidationResult validation = m_response_validator.validate(provider_output);
 
     bool repaired = false;
@@ -221,7 +317,7 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
         try {
             const nlohmann::json parsed = nlohmann::json::parse(m_last_ai_response_json);
             const std::string summary = parsed.value("summary", "Reponse provider recue.");
-            append_history_line("Assistant: " + wxString::FromUTF8(summary.c_str()));
+            append_history_line("Assistant (" + provider_name + "): " + wxString::FromUTF8(summary.c_str()));
             populate_recommendations_from_response(parsed);
         } catch (...) {
             clear_recommendations();
