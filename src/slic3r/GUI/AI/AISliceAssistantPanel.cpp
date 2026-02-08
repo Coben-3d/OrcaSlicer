@@ -727,10 +727,9 @@ void AISliceAssistantPanel::refresh_context_card()
             filament_name = "Unknown";
         filament_missing = (filament_name == "Unknown");
 
-        if (bundle->printers.get_edited_preset().printer_technology() == ptSLA)
+        process_name = bundle->prints.get_edited_preset().name;
+        if (is_missing_preset_name(process_name))
             process_name = bundle->sla_prints.get_edited_preset().name;
-        else
-            process_name = bundle->prints.get_edited_preset().name;
         if (is_missing_preset_name(process_name))
             process_name = "Unknown";
     }
@@ -742,7 +741,20 @@ void AISliceAssistantPanel::refresh_context_card()
     m_context_summary->SetLabel(wxString::FromUTF8(summary.str().c_str()));
 
     std::vector<std::string> warnings;
-    if (m_plater == nullptr || m_plater->model().objects.empty())
+    bool no_models_on_plate = false;
+    if (!m_last_context_snapshot_json.empty()) {
+        try {
+            const nlohmann::json context_json = nlohmann::json::parse(m_last_context_snapshot_json);
+            if (context_json.contains("project") && context_json.at("project").is_object()) {
+                const nlohmann::json& project = context_json.at("project");
+                if (project.contains("object_count") && project.at("object_count").is_number_integer())
+                    no_models_on_plate = project.at("object_count").get<int>() <= 0;
+            }
+        } catch (...) {
+            // Keep context card resilient to malformed cached JSON.
+        }
+    }
+    if (no_models_on_plate)
         warnings.emplace_back("No models on the plate. Add a model to see the magic.");
     if (printer_missing)
         warnings.emplace_back("Printer preset is missing.");
