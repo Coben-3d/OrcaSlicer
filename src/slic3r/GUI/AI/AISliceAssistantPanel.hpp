@@ -14,6 +14,7 @@
 class wxButton;
 class wxDataViewEvent;
 class wxDataViewListCtrl;
+class wxPanel;
 class wxStaticText;
 class wxTextCtrl;
 class wxCommandEvent;
@@ -80,6 +81,7 @@ private:
     void on_start_over(wxCommandEvent& event);
     void on_apply(wxCommandEvent& event);
     void on_undo(wxCommandEvent& event);
+    void on_more_options(wxCommandEvent& event);
     void on_change_list_event(wxDataViewEvent& event);
 
     void append_history_line(const wxString& line);
@@ -90,11 +92,15 @@ private:
     bool undo_last_apply_atomically(std::string& error_message);
     void refresh_plater_after_changes(bool touched_global_or_profile, bool touched_object, int object_idx);
     void refresh_context_card();
+    void update_recommendations_recap();
 
     Plater*     m_plater { nullptr };
     wxPanel*    m_context_card { nullptr };
+    wxPanel*    m_conversation_card { nullptr };
+    wxPanel*    m_recommendations_card { nullptr };
     wxStaticText* m_context_summary { nullptr };
     wxStaticText* m_context_warning { nullptr };
+    wxStaticText* m_recommendations_recap { nullptr };
     wxButton*   m_change_printer { nullptr };
     wxButton*   m_change_filament { nullptr };
     wxButton*   m_start_over { nullptr };
@@ -103,9 +109,7 @@ private:
     wxTextCtrl* m_change_details { nullptr };
     wxTextCtrl* m_input   { nullptr };
     wxButton*   m_send    { nullptr };
-    wxButton*   m_copy_context { nullptr };
-    wxButton*   m_copy_last_json { nullptr };
-    wxButton*   m_export_debug { nullptr };
+    wxButton*   m_more_options { nullptr };
     wxButton*   m_apply { nullptr };
     wxButton*   m_undo { nullptr };
     std::string m_last_context_snapshot_json;

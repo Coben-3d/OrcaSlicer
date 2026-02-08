@@ -21,6 +21,7 @@
 #include <wx/dataobj.h>
 #include <wx/dataview.h>
 #include <wx/filedlg.h>
+#include <wx/menu.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
@@ -42,6 +43,14 @@ namespace GUI {
 namespace {
 
 using nlohmann::json;
+
+enum : int
+{
+    ID_AI_MORE_COPY_CONTEXT = wxID_HIGHEST + 1201,
+    ID_AI_MORE_COPY_LAST_JSON,
+    ID_AI_MORE_EXPORT_DEBUG,
+    ID_AI_MORE_SAFE_MODE
+};
 
 struct PreparedOperation
 {
@@ -329,70 +338,80 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     context_card_sizer->Add(context_actions, 0, wxEXPAND | wxALL, FromDIP(8));
     m_context_card->SetSizer(context_card_sizer);
 
-    m_history = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
+    m_conversation_card = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE);
+    auto* conversation_card_sizer = new wxBoxSizer(wxVERTICAL);
+    auto* conversation_title = new wxStaticText(m_conversation_card, wxID_ANY, "Conversation");
+    m_history = new wxTextCtrl(m_conversation_card, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
+    m_input   = new wxTextCtrl(m_conversation_card, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_PROCESS_ENTER);
+    m_send    = new wxButton(m_conversation_card, wxID_ANY, "Send");
+    m_input->SetMinSize(wxSize(-1, FromDIP(80)));
+    m_input->Enable(true);
+    m_input->SetEditable(true);
+    m_input->Raise();
 
-    auto* recommended_label = new wxStaticText(this, wxID_ANY, "Recommended changes");
-    m_recommended_changes_list = new wxDataViewListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxDV_ROW_LINES | wxDV_VERT_RULES);
+    auto* input_row = new wxBoxSizer(wxHORIZONTAL);
+    input_row->Add(m_input, 1, wxEXPAND | wxRIGHT, FromDIP(6));
+    input_row->Add(m_send, 0, wxALIGN_BOTTOM);
+
+    conversation_card_sizer->Add(conversation_title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    conversation_card_sizer->Add(m_history, 1, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    conversation_card_sizer->Add(input_row, 0, wxEXPAND | wxALL, FromDIP(8));
+    m_conversation_card->SetSizer(conversation_card_sizer);
+
+    m_recommendations_card = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE);
+    auto* recommendations_card_sizer = new wxBoxSizer(wxVERTICAL);
+    auto* recommendations_header = new wxBoxSizer(wxHORIZONTAL);
+    auto* recommendations_label = new wxStaticText(m_recommendations_card, wxID_ANY, "Recommendations");
+    m_recommendations_recap = new wxStaticText(m_recommendations_card, wxID_ANY, "Selected: 0 changes");
+    recommendations_header->Add(recommendations_label, 0, wxRIGHT, FromDIP(8));
+    recommendations_header->AddStretchSpacer(1);
+    recommendations_header->Add(m_recommendations_recap, 0, wxALIGN_CENTER_VERTICAL);
+
+    m_recommended_changes_list = new wxDataViewListCtrl(m_recommendations_card, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxDV_ROW_LINES | wxDV_VERT_RULES);
     m_recommended_changes_list->AppendToggleColumn("Enabled", wxDATAVIEW_CELL_ACTIVATABLE, FromDIP(76), wxALIGN_CENTER, wxDATAVIEW_COL_RESIZABLE);
     m_recommended_changes_list->AppendTextColumn("Setting", wxDATAVIEW_CELL_INERT, FromDIP(240), wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
     m_recommended_changes_list->AppendTextColumn("Value", wxDATAVIEW_CELL_INERT, FromDIP(160), wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
     m_recommended_changes_list->AppendTextColumn("Status", wxDATAVIEW_CELL_INERT, FromDIP(200), wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE);
     m_recommended_changes_list->SetMinSize(wxSize(-1, FromDIP(130)));
 
-    m_change_details = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
+    m_change_details = new wxTextCtrl(m_recommendations_card, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
     m_change_details->SetMinSize(wxSize(-1, FromDIP(95)));
 
-    m_apply   = new wxButton(this, wxID_ANY, "Apply Selected");
-    m_undo    = new wxButton(this, wxID_ANY, "Undo Last Apply");
+    m_apply   = new wxButton(m_recommendations_card, wxID_ANY, "Apply Selected");
+    m_undo    = new wxButton(m_recommendations_card, wxID_ANY, "Undo Last Apply");
+    m_more_options = new wxButton(m_recommendations_card, wxID_ANY, "More options");
 
-    m_input   = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_PROCESS_ENTER);
-    m_input->SetMinSize(wxSize(-1, FromDIP(80)));
-    m_input->Enable(true);
-    m_input->SetEditable(true);
-    m_input->Raise();
-    m_send    = new wxButton(this, wxID_ANY, "Send");
-    m_copy_context = new wxButton(this, wxID_ANY, "Copy Context");
-    m_copy_last_json = new wxButton(this, wxID_ANY, "Copy Last JSON");
-    m_export_debug = new wxButton(this, wxID_ANY, "Export Debug Bundle");
-
-    const wxSize button_min_size = wxSize(FromDIP(110), -1);
+    const wxSize button_min_size = wxSize(FromDIP(120), -1);
     m_send->SetMinSize(button_min_size);
-    m_copy_context->SetMinSize(button_min_size);
-    m_copy_last_json->SetMinSize(button_min_size);
     m_apply->SetMinSize(button_min_size);
     m_undo->SetMinSize(button_min_size);
-    m_export_debug->SetMinSize(wxSize(FromDIP(145), -1));
+    m_more_options->SetMinSize(button_min_size);
     m_change_printer->SetMinSize(button_min_size);
     m_change_filament->SetMinSize(button_min_size);
     m_start_over->SetMinSize(button_min_size);
 
-    auto* bottom_area = new wxBoxSizer(wxVERTICAL);
-    auto* buttons_wrap = new wxWrapSizer(wxHORIZONTAL);
-    buttons_wrap->Add(m_send, 0, wxALL, FromDIP(3));
-    buttons_wrap->Add(m_copy_context, 0, wxALL, FromDIP(3));
-    buttons_wrap->Add(m_copy_last_json, 0, wxALL, FromDIP(3));
-    buttons_wrap->Add(m_export_debug, 0, wxALL, FromDIP(3));
-    buttons_wrap->Add(m_apply, 0, wxALL, FromDIP(3));
-    buttons_wrap->Add(m_undo, 0, wxALL, FromDIP(3));
+    auto* recommendations_actions = new wxBoxSizer(wxHORIZONTAL);
+    recommendations_actions->Add(m_apply, 0, wxRIGHT, FromDIP(6));
+    recommendations_actions->Add(m_undo, 0, wxRIGHT, FromDIP(6));
+    recommendations_actions->AddStretchSpacer(1);
+    recommendations_actions->Add(m_more_options, 0);
 
-    bottom_area->Add(m_input, 1, wxEXPAND | wxALL, FromDIP(6));
-    bottom_area->Add(buttons_wrap, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(3));
+    recommendations_card_sizer->Add(recommendations_header, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    recommendations_card_sizer->Add(m_recommended_changes_list, 1, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    recommendations_card_sizer->Add(m_change_details, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    recommendations_card_sizer->Add(recommendations_actions, 0, wxEXPAND | wxALL, FromDIP(8));
+    m_recommendations_card->SetSizer(recommendations_card_sizer);
 
     root_sizer->Add(m_context_card, 0, wxEXPAND | wxALL, FromDIP(8));
-    root_sizer->Add(m_history, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
-    root_sizer->Add(recommended_label, 0, wxLEFT | wxRIGHT, FromDIP(8));
-    root_sizer->Add(m_recommended_changes_list, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
-    root_sizer->Add(m_change_details, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
-    root_sizer->Add(bottom_area, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
+    root_sizer->Add(m_conversation_card, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
+    root_sizer->Add(m_recommendations_card, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
     SetSizer(root_sizer);
     Layout();
 
     m_send->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_send, this);
     m_input->Bind(wxEVT_TEXT_ENTER, &AISliceAssistantPanel::on_send, this);
     m_input->Bind(wxEVT_CHAR_HOOK, &AISliceAssistantPanel::on_input_char_hook, this);
-    m_copy_context->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_copy_context, this);
-    m_copy_last_json->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_copy_last_json, this);
-    m_export_debug->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_export_debug_bundle, this);
+    m_more_options->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_more_options, this);
     m_change_printer->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_change_printer, this);
     m_change_filament->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_change_filament, this);
     m_start_over->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_start_over, this);
@@ -405,6 +424,7 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
 
     CallAfter([this]() {
         refresh_context_card();
+        update_recommendations_recap();
         if (m_input != nullptr) {
             m_input->Enable(true);
             m_input->SetEditable(true);
@@ -677,6 +697,53 @@ void AISliceAssistantPanel::on_undo(wxCommandEvent& event)
     refresh_context_card();
 }
 
+void AISliceAssistantPanel::on_more_options(wxCommandEvent& event)
+{
+    wxUnusedVar(event);
+
+    wxMenu menu;
+    menu.Append(ID_AI_MORE_COPY_CONTEXT, "Copy Context");
+    menu.Append(ID_AI_MORE_COPY_LAST_JSON, "Copy Last JSON");
+    menu.Append(ID_AI_MORE_EXPORT_DEBUG, "Export Debug Bundle");
+    menu.AppendSeparator();
+    menu.AppendCheckItem(ID_AI_MORE_SAFE_MODE, "Safe Mode");
+    menu.Check(ID_AI_MORE_SAFE_MODE, is_safe_mode_enabled());
+
+    const int selected = GetPopupMenuSelectionFromUser(menu);
+    if (selected == wxID_NONE)
+        return;
+
+    wxCommandEvent forwarded_event;
+    switch (selected) {
+    case ID_AI_MORE_COPY_CONTEXT:
+        on_copy_context(forwarded_event);
+        break;
+    case ID_AI_MORE_COPY_LAST_JSON:
+        on_copy_last_json(forwarded_event);
+        break;
+    case ID_AI_MORE_EXPORT_DEBUG:
+        on_export_debug_bundle(forwarded_event);
+        break;
+    case ID_AI_MORE_SAFE_MODE:
+        if (Slic3r::AppConfig* app_config = wxGetApp().app_config) {
+            const bool new_value = !is_safe_mode_enabled();
+            app_config->set_bool("ai_safe_mode", new_value);
+            app_config->save();
+            append_history_line(wxString::Format("System: Safe Mode %s.", new_value ? "enabled" : "disabled"));
+            if (!m_last_ai_response_json.empty()) {
+                try {
+                    populate_recommendations_from_response(nlohmann::json::parse(m_last_ai_response_json));
+                } catch (...) {
+                    // Keep existing state if current payload cannot be parsed.
+                }
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 void AISliceAssistantPanel::on_change_list_event(wxDataViewEvent& event)
 {
     int index = wxNOT_FOUND;
@@ -685,6 +752,7 @@ void AISliceAssistantPanel::on_change_list_event(wxDataViewEvent& event)
     if (index == wxNOT_FOUND)
         index = m_recommended_changes_list->GetSelectedRow();
     update_change_details(index);
+    update_recommendations_recap();
     event.Skip();
 }
 
@@ -799,6 +867,7 @@ void AISliceAssistantPanel::clear_recommendations()
         m_recommended_changes_list->DeleteAllItems();
     if (m_change_details)
         m_change_details->Clear();
+    update_recommendations_recap();
     refresh_context_card();
 }
 
@@ -887,6 +956,37 @@ void AISliceAssistantPanel::populate_recommendations_from_response(const nlohman
         m_recommended_changes_list->SelectRow(0);
         update_change_details(0);
     }
+    update_recommendations_recap();
+}
+
+void AISliceAssistantPanel::update_recommendations_recap()
+{
+    if (m_recommendations_recap == nullptr) return;
+
+    unsigned int selected_count = 0;
+    unsigned int safe_count = 0;
+    if (m_recommended_changes_list != nullptr) {
+        const unsigned int row_count = static_cast<unsigned int>(m_recommended_changes_list->GetItemCount());
+        for (unsigned int i = 0; i < row_count; ++i) {
+            wxVariant selected_variant;
+            m_recommended_changes_list->GetValue(selected_variant, i, 0);
+            if (!selected_variant.GetBool())
+                continue;
+
+            ++selected_count;
+            const size_t idx = static_cast<size_t>(i);
+            if (idx < m_recommended_changes.size()) {
+                const RecommendedChange& change = m_recommended_changes[idx];
+                if (!change.blocked && !change.requires_user_confirmation)
+                    ++safe_count;
+            }
+        }
+    }
+
+    wxString recap = wxString::Format("Selected: %u changes", selected_count);
+    if (is_safe_mode_enabled())
+        recap += wxString::Format(" | Safe: %u changes", safe_count);
+    m_recommendations_recap->SetLabel(recap);
 }
 
 void AISliceAssistantPanel::update_change_details(int index)
