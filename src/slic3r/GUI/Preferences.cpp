@@ -1511,6 +1511,7 @@ void PreferencesDialog::create_items()
     ensure_app_default("ai_provider_timeout_seconds", "30");
     ensure_app_default("ai_provider_max_tokens", "600");
     ensure_app_default("ai_provider_temperature", "0.2");
+    ensure_app_default("ai_provider_use_json_schema", "true");
     ensure_app_default("ai_provider_api_key_storage", "plain");
     ensure_app_default("ai_safe_mode", "true");
     ensure_app_default("ai_provider_preset", "openai_default");
@@ -1528,6 +1529,12 @@ void PreferencesDialog::create_items()
         _L("Limits risky recommendations and enforces confirmations for temperature, flow, and speed changes."),
         "ai_safe_mode");
     g_sizer->Add(item_ai_safe_mode);
+
+    auto item_ai_json_schema_mode = create_item_checkbox(
+        _L("Strict JSON schema mode"),
+        _L("Use response_format json_schema when supported by the provider. Fallback is json_object."),
+        "ai_provider_use_json_schema");
+    g_sizer->Add(item_ai_json_schema_mode);
 
     auto add_ai_text_row =
         [this, g_sizer](const wxString& title,
@@ -1648,6 +1655,7 @@ void PreferencesDialog::create_items()
         std::string model = "gpt-4.1-mini";
         std::string temperature = "0.20";
         std::string max_tokens = "600";
+        std::string use_json_schema = "true";
 
         if (preset_value == "openai_fast") {
             model = "gpt-4.1-nano";
@@ -1658,6 +1666,7 @@ void PreferencesDialog::create_items()
             model = "local-model";
             temperature = "0.10";
             max_tokens = "400";
+            use_json_schema = "false";
         }
 
         ai_base_url_ctrl->SetValue(wxString::FromUTF8(base_url.c_str()));
@@ -1670,6 +1679,7 @@ void PreferencesDialog::create_items()
         app_config->set("ai_provider_model", model);
         app_config->set("ai_provider_temperature", temperature);
         app_config->set("ai_provider_max_tokens", max_tokens);
+        app_config->set("ai_provider_use_json_schema", use_json_schema);
         app_config->save();
     };
 
@@ -1765,6 +1775,8 @@ void PreferencesDialog::create_items()
             const long timeout_seconds = normalize_numeric(ai_timeout_ctrl, "ai_provider_timeout_seconds", 30, 5, 300);
             const int max_tokens = static_cast<int>(normalize_numeric(ai_max_tokens_ctrl, "ai_provider_max_tokens", 600, 1, 4096));
             const double temperature = normalize_temperature(ai_temperature_ctrl);
+            const bool use_json_schema_response_format =
+                app_config->get("ai_provider_use_json_schema").empty() || app_config->get_bool("ai_provider_use_json_schema");
 
             // Persist typed values so Send and future sessions use the same provider config.
             app_config->set("ai_provider_base_url", base_url);
@@ -1794,7 +1806,7 @@ void PreferencesDialog::create_items()
                 Slic3r::AI::Providers::OpenAICompatProvider::load_api_key_securely(api_key, secure_error);
             }
 
-            std::thread([provider_type, base_url, model, timeout_seconds, max_tokens, temperature, api_key]() {
+            std::thread([provider_type, base_url, model, timeout_seconds, max_tokens, temperature, use_json_schema_response_format, api_key]() {
                 bool ok = false;
                 std::string error;
 
@@ -1807,6 +1819,7 @@ void PreferencesDialog::create_items()
                     cfg.timeout_seconds = timeout_seconds;
                     cfg.max_tokens      = max_tokens;
                     cfg.temperature     = temperature;
+                    cfg.use_json_schema_response_format = use_json_schema_response_format;
 
                     Slic3r::AI::Providers::OpenAICompatProvider provider(std::move(cfg));
                     ok = provider.test_connection(error);

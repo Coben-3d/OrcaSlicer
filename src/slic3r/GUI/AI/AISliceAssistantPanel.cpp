@@ -251,6 +251,8 @@ std::string run_selected_provider(const Slic3r::AI::Providers::ProviderRequest& 
     openai_config.max_tokens      = parse_int_with_fallback(app_config->get("ai_provider_max_tokens"), 600, 1, 4096);
     openai_config.temperature     = parse_double_with_fallback(app_config->get("ai_provider_temperature"), 0.2, 0.0, 2.0);
     openai_config.api_key         = load_ai_provider_api_key(app_config);
+    openai_config.use_json_schema_response_format =
+        app_config->get("ai_provider_use_json_schema").empty() || app_config->get_bool("ai_provider_use_json_schema");
 
     provider_name = "OpenAI-compatible";
     Slic3r::AI::Providers::OpenAICompatProvider openai_provider(std::move(openai_config));

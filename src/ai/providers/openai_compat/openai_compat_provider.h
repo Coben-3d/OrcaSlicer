@@ -18,6 +18,7 @@ struct OpenAICompatConfig
     long        timeout_seconds { 30 };
     int         max_tokens { 600 };
     double      temperature { 0.2 };
+    bool        use_json_schema_response_format { true };
 };
 
 class OpenAICompatProvider final : public Provider

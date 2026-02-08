@@ -1,5 +1,9 @@
 #include "openai_compat_provider.h"
 
+#include <boost/log/trivial.hpp>
+
+#include <filesystem>
+#include <fstream>
 #include "nlohmann/json.hpp"
 #include "slic3r/Utils/Http.hpp"
 
@@ -21,6 +25,43 @@ using nlohmann::json;
 
 constexpr const char* k_secret_store_service = "orcaslicer.ai.openai_compat";
 constexpr const char* k_secret_store_user = "api_key";
+constexpr const char* k_contract_schema_filename = "response_schema_v0_1_0.json";
+
+std::filesystem::path contract_schema_path()
+{
+    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "contracts" / k_contract_schema_filename;
+}
+
+bool load_contract_schema_once(json& out_schema, std::string& out_error)
+{
+    static bool initialized = false;
+    static json cached_schema;
+    static std::string cached_error;
+
+    if (!initialized) {
+        initialized = true;
+        const std::filesystem::path schema_path = contract_schema_path();
+        std::ifstream schema_file(schema_path, std::ios::in | std::ios::binary);
+        if (!schema_file.is_open()) {
+            cached_error = "cannot open schema file: " + schema_path.string();
+        } else {
+            try {
+                schema_file >> cached_schema;
+            } catch (const std::exception& ex) {
+                cached_error = std::string("failed to parse schema file: ") + ex.what();
+            }
+        }
+    }
+
+    if (!cached_error.empty()) {
+        out_error = cached_error;
+        return false;
+    }
+
+    out_schema = cached_schema;
+    out_error.clear();
+    return true;
+}
 
 std::string trim_copy(const std::string& value)
 {
@@ -211,7 +252,27 @@ bool perform_chat_completion(const OpenAICompatConfig& config,
     payload["messages"] = build_messages(request);
     payload["temperature"] = config.temperature;
     payload["max_tokens"] = config.max_tokens;
-    payload["response_format"] = json::object({{"type", "json_object"}});
+    if (config.use_json_schema_response_format) {
+        json schema_json;
+        std::string schema_error;
+        if (load_contract_schema_once(schema_json, schema_error)) {
+            payload["response_format"] = json::object({
+                {"type", "json_schema"},
+                {"json_schema", json::object({
+                    {"name", "ai_slice_contract_v0_1_0"},
+                    {"schema", schema_json},
+                    {"strict", true}
+                })}
+            });
+        } else {
+            BOOST_LOG_TRIVIAL(error)
+                << "AI OpenAI-compatible provider: failed to load " << k_contract_schema_filename
+                << " for json_schema mode; falling back to json_object. reason=" << schema_error;
+            payload["response_format"] = json::object({{"type", "json_object"}});
+        }
+    } else {
+        payload["response_format"] = json::object({{"type", "json_object"}});
+    }
 
     bool success = false;
     try {
