@@ -16,6 +16,8 @@ namespace {
 
 using nlohmann::json;
 
+constexpr const char* k_geometry_conversion_warning = "geometry_modification_not_supported_converted_to_slicing";
+
 std::filesystem::path default_schema_path()
 {
     return std::filesystem::path(__FILE__).parent_path().parent_path() / "contracts" / "response_schema_v0_1_0.json";
@@ -136,6 +138,93 @@ void validate_against_schema(const json& value, const json& schema, const std::s
     }
 }
 
+json make_reinforcement_change(const std::string& id, const std::string& key, int value, const std::string& reason)
+{
+    return json::object({
+        {"id", id},
+        {"key", key},
+        {"value", value},
+        {"value_type", "int"},
+        {"reason", reason},
+        {"impact", json::object({{"quality", 8}, {"time", 6}, {"risk", 3}})},
+        {"confidence", 0.72},
+        {"applies_to", "profile"},
+        {"tags", json::array({"auto_converted", "slicing_reinforcement"})},
+        {"requires_user_confirmation", true}
+    });
+}
+
+bool has_change_key(const json& changes, const std::string& key)
+{
+    if (!changes.is_array())
+        return false;
+
+    for (const auto& item : changes) {
+        if (!item.is_object() || !item.contains("key") || !item.at("key").is_string())
+            continue;
+        if (item.at("key").get<std::string>() == key)
+            return true;
+    }
+    return false;
+}
+
+void ensure_warning(json& response, const std::string& warning)
+{
+    if (!response.contains("warnings") || !response.at("warnings").is_array())
+        response["warnings"] = json::array();
+
+    for (const auto& item : response.at("warnings")) {
+        if (item.is_string() && item.get<std::string>() == warning)
+            return;
+    }
+    response["warnings"].push_back(warning);
+}
+
+void normalize_geometry_model_recommendations(json& response)
+{
+    if (!response.is_object() || !response.contains("recommended_changes") || !response.at("recommended_changes").is_array())
+        return;
+
+    json kept_changes = json::array();
+    bool had_geometry_recommendation = false;
+
+    for (const auto& item : response.at("recommended_changes")) {
+        if (!item.is_object()) {
+            kept_changes.push_back(item);
+            continue;
+        }
+
+        const std::string applies_to = item.value("applies_to", "");
+        if (applies_to == "model" || applies_to == "geometry") {
+            had_geometry_recommendation = true;
+            continue;
+        }
+
+        kept_changes.push_back(item);
+    }
+
+    if (!had_geometry_recommendation) {
+        response["recommended_changes"] = kept_changes;
+        return;
+    }
+
+    const std::string reason = "Converted from unsupported geometry/model modification request.";
+    if (!has_change_key(kept_changes, "wall_count"))
+        kept_changes.push_back(make_reinforcement_change("auto_convert_wall_count", "wall_count", 3, reason));
+    if (!has_change_key(kept_changes, "top_layers"))
+        kept_changes.push_back(make_reinforcement_change("auto_convert_top_layers", "top_layers", 5, reason));
+    if (!has_change_key(kept_changes, "bottom_layers"))
+        kept_changes.push_back(make_reinforcement_change("auto_convert_bottom_layers", "bottom_layers", 5, reason));
+    if (!has_change_key(kept_changes, "infill_density"))
+        kept_changes.push_back(make_reinforcement_change("auto_convert_infill_density", "infill_density", 20, reason));
+
+    if (kept_changes.size() > 20)
+        kept_changes.erase(kept_changes.begin() + 20, kept_changes.end());
+
+    response["recommended_changes"] = kept_changes;
+    ensure_warning(response, k_geometry_conversion_warning);
+}
+
 void validate_business_rules(const json& response, std::vector<std::string>& errors)
 {
     if (!response.contains("contract_version") || !response.at("contract_version").is_string() ||
@@ -201,7 +290,7 @@ ResponseValidator::ResponseValidator()
     m_schema_text = schema_json.dump();
 }
 
-ValidationResult ResponseValidator::validate(const std::string& raw_response_json) const
+ValidationResult ResponseValidator::validate(std::string& raw_response_json) const
 {
     ValidationResult result;
 
@@ -212,6 +301,9 @@ ValidationResult ResponseValidator::validate(const std::string& raw_response_jso
         result.errors.push_back(std::string("parse: invalid JSON: ") + ex.what());
         return result;
     }
+
+    normalize_geometry_model_recommendations(response);
+    raw_response_json = response.dump();
 
     if (!m_schema_loaded) {
         result.errors.push_back("schema: " + m_schema_text);

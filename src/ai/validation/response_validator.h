@@ -18,7 +18,7 @@ class ResponseValidator
 {
 public:
     ResponseValidator();
-    ValidationResult validate(const std::string& raw_response_json) const;
+    ValidationResult validate(std::string& raw_response_json) const;
 
 private:
     std::string m_schema_path;
