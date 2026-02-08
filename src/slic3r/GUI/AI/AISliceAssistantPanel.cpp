@@ -269,7 +269,10 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_apply   = new wxButton(this, wxID_ANY, "Apply Selected");
     m_undo    = new wxButton(this, wxID_ANY, "Undo Last Apply");
 
-    m_input   = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
+    m_input   = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_PROCESS_ENTER);
+    m_input->SetMinSize(wxSize(-1, FromDIP(70)));
+    m_input->Enable(true);
+    m_input->SetEditable(true);
     m_send    = new wxButton(this, wxID_ANY, "Send");
     m_copy_context = new wxButton(this, wxID_ANY, "Copy Context");
     m_copy_last_json = new wxButton(this, wxID_ANY, "Copy Last JSON");
@@ -296,6 +299,7 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
 
     m_send->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_send, this);
     m_input->Bind(wxEVT_TEXT_ENTER, &AISliceAssistantPanel::on_send, this);
+    m_input->Bind(wxEVT_CHAR_HOOK, &AISliceAssistantPanel::on_input_char_hook, this);
     m_copy_context->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_copy_context, this);
     m_copy_last_json->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_copy_last_json, this);
     m_export_debug->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_export_debug_bundle, this);
@@ -303,6 +307,15 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_undo->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_undo, this);
     m_recommended_changes_list->Bind(wxEVT_LISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
     m_recommended_changes_list->Bind(wxEVT_CHECKLISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
+    Bind(wxEVT_SHOW, &AISliceAssistantPanel::on_panel_show, this);
+
+    CallAfter([this]() {
+        if (m_input != nullptr) {
+            m_input->Enable(true);
+            m_input->SetEditable(true);
+            m_input->SetFocus();
+        }
+    });
 }
 
 void AISliceAssistantPanel::on_send(wxCommandEvent& event)
@@ -366,6 +379,51 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
     }
 
     m_input->Clear();
+}
+
+void AISliceAssistantPanel::on_input_char_hook(wxKeyEvent& event)
+{
+    if (m_input == nullptr) {
+        event.Skip();
+        return;
+    }
+
+    const int key_code = event.GetKeyCode();
+    const bool is_enter = key_code == WXK_RETURN || key_code == WXK_NUMPAD_ENTER;
+    if (!is_enter) {
+        event.Skip();
+        return;
+    }
+
+    const bool is_multiline = (m_input->GetWindowStyleFlag() & wxTE_MULTILINE) != 0;
+    const bool shift_down = event.ShiftDown();
+#ifdef __WXOSX__
+    const bool cmd_or_ctrl_down = event.CmdDown();
+#else
+    const bool cmd_or_ctrl_down = event.ControlDown();
+#endif
+
+    if (cmd_or_ctrl_down || !is_multiline || !shift_down) {
+        wxCommandEvent send_event(wxEVT_BUTTON, m_send ? m_send->GetId() : wxID_ANY);
+        send_event.SetEventObject(m_send);
+        on_send(send_event);
+        return;
+    }
+
+    event.Skip();
+}
+
+void AISliceAssistantPanel::on_panel_show(wxShowEvent& event)
+{
+    if (event.IsShown() && m_input != nullptr) {
+        m_input->Enable(true);
+        m_input->SetEditable(true);
+        CallAfter([this]() {
+            if (m_input != nullptr)
+                m_input->SetFocus();
+        });
+    }
+    event.Skip();
 }
 
 void AISliceAssistantPanel::on_copy_context(wxCommandEvent& event)

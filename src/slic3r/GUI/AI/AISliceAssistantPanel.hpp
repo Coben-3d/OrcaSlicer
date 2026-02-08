@@ -15,6 +15,8 @@ class wxButton;
 class wxCheckListBox;
 class wxTextCtrl;
 class wxCommandEvent;
+class wxKeyEvent;
+class wxShowEvent;
 class wxString;
 
 namespace Slic3r {
@@ -64,6 +66,8 @@ public:
 
 private:
     void on_send(wxCommandEvent& event);
+    void on_input_char_hook(wxKeyEvent& event);
+    void on_panel_show(wxShowEvent& event);
     void on_copy_context(wxCommandEvent& event);
     void on_copy_last_json(wxCommandEvent& event);
     void on_export_debug_bundle(wxCommandEvent& event);
