@@ -66,6 +66,7 @@ private:
     void on_send(wxCommandEvent& event);
     void on_copy_context(wxCommandEvent& event);
     void on_copy_last_json(wxCommandEvent& event);
+    void on_export_debug_bundle(wxCommandEvent& event);
     void on_apply(wxCommandEvent& event);
     void on_undo(wxCommandEvent& event);
     void on_change_list_event(wxCommandEvent& event);
@@ -86,11 +87,13 @@ private:
     wxButton*   m_send    { nullptr };
     wxButton*   m_copy_context { nullptr };
     wxButton*   m_copy_last_json { nullptr };
+    wxButton*   m_export_debug { nullptr };
     wxButton*   m_apply { nullptr };
     wxButton*   m_undo { nullptr };
     std::string m_last_context_snapshot_json;
     std::string m_last_geometry_insights_json;
     std::string m_last_ai_response_json;
+    std::vector<std::string> m_last_validation_errors;
     std::vector<RecommendedChange> m_recommended_changes;
     std::vector<AppliedValueBackup> m_last_apply_backups;
     bool m_last_apply_touched_global_or_profile { false };

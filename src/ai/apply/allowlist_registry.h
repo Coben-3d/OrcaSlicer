@@ -2,6 +2,7 @@
 #define slic3r_ai_apply_allowlist_registry_h_
 
 #include <cstddef>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ struct AllowlistEntry
     AllowlistValueType        type { AllowlistValueType::String };
     std::string               label;
     std::string               safety_notes;
+    std::vector<std::string>  tags;
     bool                      has_numeric_bounds { false };
     double                    min_value { 0.0 };
     double                    max_value { 0.0 };
@@ -48,6 +50,8 @@ public:
     static ValidationResult validate_value(const std::string& key, const nlohmann::json& json_value);
     static std::string label_for(const std::string& key);
     static std::string safety_notes_for(const std::string& key);
+    static bool        has_tag(const std::string& key, const std::string& tag);
+    static bool        has_any_tag(const std::string& key, std::initializer_list<std::string> tags);
     static size_t      key_count();
 };
 

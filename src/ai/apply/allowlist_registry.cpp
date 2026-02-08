@@ -1,6 +1,8 @@
 #include "allowlist_registry.h"
 
 #include <algorithm>
+#include <array>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -11,6 +13,40 @@ namespace Apply {
 
 namespace {
 
+std::vector<std::string> derive_tags_for_key(const std::string& key)
+{
+    std::vector<std::string> tags;
+    auto add_tag = [&tags](const std::string& tag) {
+        if (std::find(tags.begin(), tags.end(), tag) == tags.end())
+            tags.push_back(tag);
+    };
+
+    if (key.find("temperature") != std::string::npos) {
+        add_tag("temperature");
+        add_tag("high-risk");
+    }
+
+    if (key.find("speed") != std::string::npos)
+        add_tag("speed");
+
+    if (key.find("flow") != std::string::npos)
+        add_tag("flow");
+
+    static const std::array<const char*, 5> high_risk_flow_keys = {
+        "flow_ratio",
+        "pressure_advance",
+        "volumetric_flow_limit",
+        "max_volumetric_speed",
+        "bridge_flow_ratio"
+    };
+    if (std::any_of(high_risk_flow_keys.begin(), high_risk_flow_keys.end(), [&key](const char* item) { return key == item; })) {
+        add_tag("flow");
+        add_tag("high-risk");
+    }
+
+    return tags;
+}
+
 AllowlistEntry bool_entry(std::string key, std::string label, std::string notes)
 {
     AllowlistEntry entry;
@@ -18,6 +54,7 @@ AllowlistEntry bool_entry(std::string key, std::string label, std::string notes)
     entry.type         = AllowlistValueType::Bool;
     entry.label        = std::move(label);
     entry.safety_notes = std::move(notes);
+    entry.tags         = derive_tags_for_key(entry.key);
     entry.enum_values  = {"false", "true"};
     return entry;
 }
@@ -29,6 +66,7 @@ AllowlistEntry int_entry(std::string key, int min_value, int max_value, std::str
     entry.type               = AllowlistValueType::Int;
     entry.label              = std::move(label);
     entry.safety_notes       = std::move(notes);
+    entry.tags               = derive_tags_for_key(entry.key);
     entry.has_numeric_bounds = true;
     entry.min_value          = static_cast<double>(min_value);
     entry.max_value          = static_cast<double>(max_value);
@@ -42,6 +80,7 @@ AllowlistEntry float_entry(std::string key, double min_value, double max_value, 
     entry.type               = AllowlistValueType::Float;
     entry.label              = std::move(label);
     entry.safety_notes       = std::move(notes);
+    entry.tags               = derive_tags_for_key(entry.key);
     entry.has_numeric_bounds = true;
     entry.min_value          = min_value;
     entry.max_value          = max_value;
@@ -55,6 +94,7 @@ AllowlistEntry string_entry(std::string key, size_t min_length, size_t max_lengt
     entry.type              = AllowlistValueType::String;
     entry.label             = std::move(label);
     entry.safety_notes      = std::move(notes);
+    entry.tags              = derive_tags_for_key(entry.key);
     entry.has_length_bounds = true;
     entry.min_length        = min_length;
     entry.max_length        = max_length;
@@ -68,6 +108,7 @@ AllowlistEntry enum_entry(std::string key, std::vector<std::string> enum_values,
     entry.type         = AllowlistValueType::Enum;
     entry.label        = std::move(label);
     entry.safety_notes = std::move(notes);
+    entry.tags         = derive_tags_for_key(entry.key);
     entry.enum_values  = std::move(enum_values);
     return entry;
 }
@@ -300,6 +341,27 @@ std::string AllowlistRegistry::safety_notes_for(const std::string& key)
 {
     const auto it = registry().find(key);
     return it == registry().end() ? std::string() : it->second.safety_notes;
+}
+
+bool AllowlistRegistry::has_tag(const std::string& key, const std::string& tag)
+{
+    const auto it = registry().find(key);
+    if (it == registry().end())
+        return false;
+    const auto& tags = it->second.tags;
+    return std::find(tags.begin(), tags.end(), tag) != tags.end();
+}
+
+bool AllowlistRegistry::has_any_tag(const std::string& key, std::initializer_list<std::string> tags)
+{
+    const auto it = registry().find(key);
+    if (it == registry().end())
+        return false;
+    for (const std::string& tag : tags) {
+        if (std::find(it->second.tags.begin(), it->second.tags.end(), tag) != it->second.tags.end())
+            return true;
+    }
+    return false;
 }
 
 size_t AllowlistRegistry::key_count()

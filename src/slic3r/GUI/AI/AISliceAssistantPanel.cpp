@@ -9,6 +9,7 @@
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r_version.h"
 #include "nlohmann/json.hpp"
 
 #include <wx/event.h>
@@ -16,6 +17,7 @@
 #include <wx/checklst.h>
 #include <wx/clipbrd.h>
 #include <wx/dataobj.h>
+#include <wx/filedlg.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
@@ -24,6 +26,7 @@
 #include <wx/utils.h>
 
 #include <exception>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <utility>
@@ -127,6 +130,29 @@ std::string compact_json_value(const json& value)
     if (dumped.size() <= max_size)
         return dumped;
     return dumped.substr(0, max_size - 3) + "...";
+}
+
+bool is_safe_mode_enabled()
+{
+    const Slic3r::AppConfig* app_config = wxGetApp().app_config;
+    if (app_config == nullptr)
+        return true;
+
+    const std::string configured = app_config->get("ai_safe_mode");
+    if (configured.empty())
+        return true;
+    return app_config->get_bool("ai_safe_mode");
+}
+
+json parse_json_or_string(const std::string& raw_json)
+{
+    if (raw_json.empty())
+        return json();
+    try {
+        return json::parse(raw_json);
+    } catch (...) {
+        return raw_json;
+    }
 }
 
 long parse_long_with_fallback(const std::string& value, long fallback, long min_value, long max_value)
@@ -247,6 +273,7 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_send    = new wxButton(this, wxID_ANY, "Send");
     m_copy_context = new wxButton(this, wxID_ANY, "Copy Context");
     m_copy_last_json = new wxButton(this, wxID_ANY, "Copy Last JSON");
+    m_export_debug = new wxButton(this, wxID_ANY, "Export Debug Bundle");
 
     auto* apply_row = new wxBoxSizer(wxHORIZONTAL);
     apply_row->Add(m_apply, 0, wxRIGHT, FromDIP(6));
@@ -256,7 +283,8 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     input_row->Add(m_input, 1, wxEXPAND | wxRIGHT, FromDIP(6));
     input_row->Add(m_send, 0, wxRIGHT, FromDIP(6));
     input_row->Add(m_copy_context, 0, wxRIGHT, FromDIP(6));
-    input_row->Add(m_copy_last_json, 0, wxEXPAND);
+    input_row->Add(m_copy_last_json, 0, wxRIGHT, FromDIP(6));
+    input_row->Add(m_export_debug, 0, wxEXPAND);
 
     root_sizer->Add(m_history, 1, wxEXPAND | wxALL, FromDIP(8));
     root_sizer->Add(recommended_label, 0, wxLEFT | wxRIGHT, FromDIP(8));
@@ -270,6 +298,7 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_input->Bind(wxEVT_TEXT_ENTER, &AISliceAssistantPanel::on_send, this);
     m_copy_context->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_copy_context, this);
     m_copy_last_json->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_copy_last_json, this);
+    m_export_debug->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_export_debug_bundle, this);
     m_apply->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_apply, this);
     m_undo->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_undo, this);
     m_recommended_changes_list->Bind(wxEVT_LISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
@@ -297,6 +326,9 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
     wxString provider_name;
     std::string provider_output = run_selected_provider(request, m_fake_provider, provider_name);
     Slic3r::AI::Validation::ValidationResult validation = m_response_validator.validate(provider_output);
+    m_last_validation_errors.clear();
+    if (!validation.valid)
+        m_last_validation_errors.insert(m_last_validation_errors.end(), validation.errors.begin(), validation.errors.end());
 
     bool repaired = false;
     int repairs_attempted = 0;
@@ -307,8 +339,10 @@ void AISliceAssistantPanel::on_send(wxCommandEvent& event)
             m_last_context_snapshot_json,
             m_last_geometry_insights_json
         };
-        provider_output = m_fake_provider.run(repair_request);
+        provider_output = run_selected_provider(repair_request, m_fake_provider, provider_name);
         validation = m_response_validator.validate(provider_output);
+        if (!validation.valid)
+            m_last_validation_errors.insert(m_last_validation_errors.end(), validation.errors.begin(), validation.errors.end());
     }
     repaired = validation.valid && repairs_attempted > 0;
 
@@ -376,6 +410,42 @@ void AISliceAssistantPanel::on_copy_last_json(wxCommandEvent& event)
     }
 }
 
+void AISliceAssistantPanel::on_export_debug_bundle(wxCommandEvent& event)
+{
+    wxUnusedVar(event);
+
+    wxFileDialog save_dialog(
+        this,
+        "Export AI Debug Bundle",
+        "",
+        "ai_debug_bundle.json",
+        "JSON files (*.json)|*.json|All files (*.*)|*.*",
+        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (save_dialog.ShowModal() != wxID_OK)
+        return;
+
+    nlohmann::json bundle = nlohmann::json::object();
+    bundle["last_context_snapshot_json"] = parse_json_or_string(m_last_context_snapshot_json);
+    bundle["last_geometry_insights_json"] = parse_json_or_string(m_last_geometry_insights_json);
+    bundle["last_ai_response_json"] = parse_json_or_string(m_last_ai_response_json);
+    bundle["validation_errors"] = m_last_validation_errors;
+    bundle["app"] = nlohmann::json::object({
+        {"name", SLIC3R_APP_NAME},
+        {"version", SLIC3R_VERSION},
+        {"platform", wxGetOsDescription().ToStdString()}
+    });
+
+    const wxString path = save_dialog.GetPath();
+    std::ofstream out(path.ToStdString(), std::ios::out | std::ios::trunc);
+    if (!out.good()) {
+        append_history_line("System: failed to write debug bundle file.");
+        return;
+    }
+    out << bundle.dump(2);
+    out.close();
+    append_history_line("System: debug bundle exported to " + path);
+}
+
 void AISliceAssistantPanel::on_apply(wxCommandEvent& event)
 {
     wxUnusedVar(event);
@@ -435,7 +505,11 @@ void AISliceAssistantPanel::populate_recommendations_from_response(const nlohman
     if (!response_json.contains("recommended_changes") || !response_json.at("recommended_changes").is_array())
         return;
 
+    const bool safe_mode = is_safe_mode_enabled();
+
     for (const auto& item : response_json.at("recommended_changes")) {
+        if (safe_mode && m_recommended_changes.size() >= 10)
+            break;
         if (!item.is_object())
             continue;
 
@@ -460,19 +534,27 @@ void AISliceAssistantPanel::populate_recommendations_from_response(const nlohman
                     change.tags.push_back(tag.get<std::string>());
             }
         }
+        if (change.key.empty())
+            continue;
+
         if (!Slic3r::AI::Apply::AllowlistRegistry::is_allowed(change.key)) {
             change.blocked = true;
             change.blocked_reason = "not allowlisted";
         } else {
+            if (safe_mode && Slic3r::AI::Apply::AllowlistRegistry::has_tag(change.key, "high-risk")) {
+                change.blocked = true;
+                change.blocked_reason = "blocked by safe mode (high-risk key)";
+            }
+
+            if (safe_mode && Slic3r::AI::Apply::AllowlistRegistry::has_any_tag(change.key, {"temperature", "flow", "speed"}))
+                change.requires_user_confirmation = true;
+
             const auto value_validation = Slic3r::AI::Apply::AllowlistRegistry::validate_value(change.key, change.value);
             if (!value_validation.valid) {
                 change.blocked = true;
                 change.blocked_reason = value_validation.error_message.empty() ? "invalid value" : value_validation.error_message;
             }
         }
-
-        if (change.key.empty())
-            continue;
 
         m_recommended_changes.push_back(std::move(change));
     }

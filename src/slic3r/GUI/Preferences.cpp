@@ -1512,6 +1512,8 @@ void PreferencesDialog::create_items()
     ensure_app_default("ai_provider_max_tokens", "600");
     ensure_app_default("ai_provider_temperature", "0.2");
     ensure_app_default("ai_provider_api_key_storage", "plain");
+    ensure_app_default("ai_safe_mode", "true");
+    ensure_app_default("ai_provider_preset", "openai_default");
 
     auto item_ai_provider_type = create_item_combobox(
         _L("AI provider"),
@@ -1520,6 +1522,12 @@ void PreferencesDialog::create_items()
         {_L("Fake"), _L("OpenAI-compatible")},
         {"fake", "openai_compat"});
     g_sizer->Add(item_ai_provider_type);
+
+    auto item_ai_safe_mode = create_item_checkbox(
+        _L("Safe Mode (recommended)"),
+        _L("Limits risky recommendations and enforces confirmations for temperature, flow, and speed changes."),
+        "ai_safe_mode");
+    g_sizer->Add(item_ai_safe_mode);
 
     auto add_ai_text_row =
         [this, g_sizer](const wxString& title,
@@ -1616,6 +1624,61 @@ void PreferencesDialog::create_items()
             parsed = std::max(0.0, std::min(2.0, parsed));
             store_app_value("ai_provider_temperature", wxString::Format("%.2f", parsed));
         });
+
+    const std::vector<std::string> ai_preset_values = {"openai_default", "openai_fast", "local_server"};
+    unsigned int ai_preset_index = 0;
+    const std::string current_ai_preset = app_config->get("ai_provider_preset");
+    for (size_t i = 0; i < ai_preset_values.size(); ++i) {
+        if (ai_preset_values[i] == current_ai_preset) {
+            ai_preset_index = static_cast<unsigned int>(i);
+            break;
+        }
+    }
+
+    auto [item_ai_preset, ai_preset_combo] = create_item_combobox_base(
+        _L("AI preset"),
+        _L("Apply provider defaults for endpoint and decoding parameters."),
+        "ai_provider_preset",
+        {_L("OpenAI (default)"), _L("OpenAI (fast)"), _L("Local server")},
+        ai_preset_index);
+    g_sizer->Add(item_ai_preset);
+
+    auto apply_ai_preset = [this, ai_base_url_ctrl, ai_model_ctrl, ai_temperature_ctrl, ai_max_tokens_ctrl](const std::string& preset_value) {
+        std::string base_url = "https://api.openai.com/v1";
+        std::string model = "gpt-4.1-mini";
+        std::string temperature = "0.20";
+        std::string max_tokens = "600";
+
+        if (preset_value == "openai_fast") {
+            model = "gpt-4.1-nano";
+            temperature = "0.10";
+            max_tokens = "400";
+        } else if (preset_value == "local_server") {
+            base_url = "http://127.0.0.1:1234/v1";
+            model = "local-model";
+            temperature = "0.10";
+            max_tokens = "400";
+        }
+
+        ai_base_url_ctrl->SetValue(wxString::FromUTF8(base_url.c_str()));
+        ai_model_ctrl->SetValue(wxString::FromUTF8(model.c_str()));
+        ai_temperature_ctrl->SetValue(wxString::FromUTF8(temperature.c_str()));
+        ai_max_tokens_ctrl->SetValue(wxString::FromUTF8(max_tokens.c_str()));
+
+        app_config->set("ai_provider_preset", preset_value);
+        app_config->set("ai_provider_base_url", base_url);
+        app_config->set("ai_provider_model", model);
+        app_config->set("ai_provider_temperature", temperature);
+        app_config->set("ai_provider_max_tokens", max_tokens);
+        app_config->save();
+    };
+
+    ai_preset_combo->GetDropDown().Bind(wxEVT_COMBOBOX, [apply_ai_preset, ai_preset_values](wxCommandEvent& e) {
+        const int selection = e.GetSelection();
+        if (selection >= 0 && static_cast<size_t>(selection) < ai_preset_values.size())
+            apply_ai_preset(ai_preset_values[static_cast<size_t>(selection)]);
+        e.Skip();
+    });
 
     std::string initial_api_key = app_config->get("ai_provider_api_key");
 #ifdef __APPLE__
