@@ -24,6 +24,7 @@
 #include <wx/string.h>
 #include <wx/textctrl.h>
 #include <wx/utils.h>
+#include <wx/wrapsizer.h>
 
 #include <exception>
 #include <fstream>
@@ -270,32 +271,42 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_undo    = new wxButton(this, wxID_ANY, "Undo Last Apply");
 
     m_input   = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_PROCESS_ENTER);
-    m_input->SetMinSize(wxSize(-1, FromDIP(70)));
+    m_input->SetMinSize(wxSize(-1, FromDIP(80)));
     m_input->Enable(true);
     m_input->SetEditable(true);
+    m_input->Raise();
     m_send    = new wxButton(this, wxID_ANY, "Send");
     m_copy_context = new wxButton(this, wxID_ANY, "Copy Context");
     m_copy_last_json = new wxButton(this, wxID_ANY, "Copy Last JSON");
     m_export_debug = new wxButton(this, wxID_ANY, "Export Debug Bundle");
 
-    auto* apply_row = new wxBoxSizer(wxHORIZONTAL);
-    apply_row->Add(m_apply, 0, wxRIGHT, FromDIP(6));
-    apply_row->Add(m_undo, 0);
+    const wxSize button_min_size = wxSize(FromDIP(110), -1);
+    m_send->SetMinSize(button_min_size);
+    m_copy_context->SetMinSize(button_min_size);
+    m_copy_last_json->SetMinSize(button_min_size);
+    m_apply->SetMinSize(button_min_size);
+    m_undo->SetMinSize(button_min_size);
+    m_export_debug->SetMinSize(wxSize(FromDIP(145), -1));
 
-    auto* input_row = new wxBoxSizer(wxHORIZONTAL);
-    input_row->Add(m_input, 1, wxEXPAND | wxRIGHT, FromDIP(6));
-    input_row->Add(m_send, 0, wxRIGHT, FromDIP(6));
-    input_row->Add(m_copy_context, 0, wxRIGHT, FromDIP(6));
-    input_row->Add(m_copy_last_json, 0, wxRIGHT, FromDIP(6));
-    input_row->Add(m_export_debug, 0, wxEXPAND);
+    auto* bottom_area = new wxBoxSizer(wxVERTICAL);
+    auto* buttons_wrap = new wxWrapSizer(wxHORIZONTAL);
+    buttons_wrap->Add(m_send, 0, wxALL, FromDIP(3));
+    buttons_wrap->Add(m_copy_context, 0, wxALL, FromDIP(3));
+    buttons_wrap->Add(m_copy_last_json, 0, wxALL, FromDIP(3));
+    buttons_wrap->Add(m_export_debug, 0, wxALL, FromDIP(3));
+    buttons_wrap->Add(m_apply, 0, wxALL, FromDIP(3));
+    buttons_wrap->Add(m_undo, 0, wxALL, FromDIP(3));
+
+    bottom_area->Add(m_input, 1, wxEXPAND | wxALL, FromDIP(6));
+    bottom_area->Add(buttons_wrap, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(3));
 
     root_sizer->Add(m_history, 1, wxEXPAND | wxALL, FromDIP(8));
     root_sizer->Add(recommended_label, 0, wxLEFT | wxRIGHT, FromDIP(8));
     root_sizer->Add(m_recommended_changes_list, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
     root_sizer->Add(m_change_details, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
-    root_sizer->Add(apply_row, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
-    root_sizer->Add(input_row, 0, wxEXPAND | wxALL, FromDIP(8));
+    root_sizer->Add(bottom_area, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
     SetSizer(root_sizer);
+    Layout();
 
     m_send->Bind(wxEVT_BUTTON, &AISliceAssistantPanel::on_send, this);
     m_input->Bind(wxEVT_TEXT_ENTER, &AISliceAssistantPanel::on_send, this);
@@ -308,11 +319,13 @@ AISliceAssistantPanel::AISliceAssistantPanel(wxWindow* parent)
     m_recommended_changes_list->Bind(wxEVT_LISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
     m_recommended_changes_list->Bind(wxEVT_CHECKLISTBOX, &AISliceAssistantPanel::on_change_list_event, this);
     Bind(wxEVT_SHOW, &AISliceAssistantPanel::on_panel_show, this);
+    Bind(wxEVT_SIZE, &AISliceAssistantPanel::on_panel_size, this);
 
     CallAfter([this]() {
         if (m_input != nullptr) {
             m_input->Enable(true);
             m_input->SetEditable(true);
+            Layout();
             m_input->SetFocus();
         }
     });
@@ -418,11 +431,21 @@ void AISliceAssistantPanel::on_panel_show(wxShowEvent& event)
     if (event.IsShown() && m_input != nullptr) {
         m_input->Enable(true);
         m_input->SetEditable(true);
+        m_input->Raise();
+        Layout();
         CallAfter([this]() {
-            if (m_input != nullptr)
+            if (m_input != nullptr) {
+                Layout();
                 m_input->SetFocus();
+            }
         });
     }
+    event.Skip();
+}
+
+void AISliceAssistantPanel::on_panel_size(wxSizeEvent& event)
+{
+    Layout();
     event.Skip();
 }
 

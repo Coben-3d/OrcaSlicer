@@ -17,6 +17,7 @@ class wxTextCtrl;
 class wxCommandEvent;
 class wxKeyEvent;
 class wxShowEvent;
+class wxSizeEvent;
 class wxString;
 
 namespace Slic3r {
@@ -68,6 +69,7 @@ private:
     void on_send(wxCommandEvent& event);
     void on_input_char_hook(wxKeyEvent& event);
     void on_panel_show(wxShowEvent& event);
+    void on_panel_size(wxSizeEvent& event);
     void on_copy_context(wxCommandEvent& event);
     void on_copy_last_json(wxCommandEvent& event);
     void on_export_debug_bundle(wxCommandEvent& event);
