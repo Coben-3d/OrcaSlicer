@@ -14,6 +14,7 @@
 class wxButton;
 class wxDataViewEvent;
 class wxDataViewListCtrl;
+class wxStaticText;
 class wxTextCtrl;
 class wxCommandEvent;
 class wxKeyEvent;
@@ -74,6 +75,9 @@ private:
     void on_copy_context(wxCommandEvent& event);
     void on_copy_last_json(wxCommandEvent& event);
     void on_export_debug_bundle(wxCommandEvent& event);
+    void on_change_printer(wxCommandEvent& event);
+    void on_change_filament(wxCommandEvent& event);
+    void on_start_over(wxCommandEvent& event);
     void on_apply(wxCommandEvent& event);
     void on_undo(wxCommandEvent& event);
     void on_change_list_event(wxDataViewEvent& event);
@@ -85,8 +89,15 @@ private:
     bool apply_selected_changes_atomically(size_t& applied_count, std::vector<std::string>& error_list);
     bool undo_last_apply_atomically(std::string& error_message);
     void refresh_plater_after_changes(bool touched_global_or_profile, bool touched_object, int object_idx);
+    void refresh_context_card();
 
     Plater*     m_plater { nullptr };
+    wxPanel*    m_context_card { nullptr };
+    wxStaticText* m_context_summary { nullptr };
+    wxStaticText* m_context_warning { nullptr };
+    wxButton*   m_change_printer { nullptr };
+    wxButton*   m_change_filament { nullptr };
+    wxButton*   m_start_over { nullptr };
     wxTextCtrl* m_history { nullptr };
     wxDataViewListCtrl* m_recommended_changes_list { nullptr };
     wxTextCtrl* m_change_details { nullptr };
