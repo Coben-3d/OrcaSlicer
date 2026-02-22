@@ -2825,6 +2825,15 @@ void MainFrame::init_menubar_as_editor()
             this, [this]() { return m_tabpanel->GetSelection() == TabPosition::tp3DEditor || m_tabpanel->GetSelection() == TabPosition::tpPreview; },
             [this]() { return wxGetApp().show_3d_navigator(); }, this);
 
+        append_menu_check_item(
+            viewMenu, wxID_ANY, _L("AI Slice Assistant"), _L("Show AI Slice Assistant panel."),
+            [this](wxCommandEvent&) {
+                if (m_plater)
+                    m_plater->toggle_ai_slice_assistant_panel();
+            },
+            this, [this]() { return m_plater != nullptr; },
+            [this]() { return m_plater != nullptr && m_plater->is_ai_slice_assistant_panel_shown(); }, this);
+
         append_menu_item(
             viewMenu, wxID_ANY, _L("Reset Window Layout"), _L("Reset to default window layout"),
             [this](wxCommandEvent&) { m_plater->reset_window_layout(); }, "", this,

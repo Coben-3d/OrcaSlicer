@@ -30,6 +30,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/AMSSetting.hpp
     GUI/AmsWidgets.cpp
     GUI/AmsWidgets.hpp
+    GUI/AI/AISliceAssistantPanel.cpp
+    GUI/AI/AISliceAssistantPanel.hpp
     GUI/Auxiliary.cpp
     GUI/AuxiliaryDataViewModel.cpp
     GUI/AuxiliaryDataViewModel.hpp
@@ -719,6 +721,19 @@ else ()
     add_library(libslic3r_gui STATIC ${SLIC3R_GUI_SOURCES})
 endif ()
 target_include_directories(libslic3r_gui PRIVATE Utils ${CMAKE_CURRENT_BINARY_DIR})
+target_sources(libslic3r_gui PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ai/apply/allowlist_registry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/apply/allowlist_registry.h
+    ${CMAKE_SOURCE_DIR}/src/ai/context_snapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/context_snapshot.h
+    ${CMAKE_SOURCE_DIR}/src/ai/validation/response_validator.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/validation/response_validator.h
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/provider.h
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/fake_provider.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/fake_provider.h
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/openai_compat/openai_compat_provider.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/providers/openai_compat/openai_compat_provider.h
+)
 
 if (WIN32)
     target_include_directories(libslic3r_gui SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../deps/WebView2/include)

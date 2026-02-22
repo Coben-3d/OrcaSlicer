@@ -66,6 +66,21 @@ If you come across any of these in search results, please <b>report them</b> as 
   Supports a broad range of printers: Bambu Lab, Prusa, Creality, Voron, and more.
 - Additional features can be found in the [change notes](https://github.com/OrcaSlicer/OrcaSlicer/releases/).
 
+# AI Slice Assistant (Experimental)
+
+AI Slice Assistant can suggest slicer setting changes from the current project context.
+It does **not** provide general-purpose chat, direct printer control, or guaranteed print outcomes.
+
+- Quick start: [docs/ai/QUICKSTART.md](docs/ai/QUICKSTART.md)
+- Safety model: [docs/ai/SAFETY.md](docs/ai/SAFETY.md)
+- Debug bundle guide: [docs/ai/DEBUG_BUNDLE.md](docs/ai/DEBUG_BUNDLE.md)
+
+## Screenshots (placeholders)
+
+- `docs/ai/assets/ai_panel_placeholder.png` (AI panel)
+- `docs/ai/assets/ai_preferences_placeholder.png` (AI provider settings)
+- `docs/ai/assets/ai_diff_placeholder.png` (recommended changes and apply/undo)
+
 # Wiki
 
 The [wiki](https://www.orcaslicer.com/wiki) aims to provide a detailed explanation of the slicer settings, including how to maximize their use and how to calibrate and set up your printer.

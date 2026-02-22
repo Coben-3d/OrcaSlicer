@@ -438,6 +438,9 @@ public:
     bool is_sidebar_collapsed() const;
     void collapse_sidebar(bool collapse);
     Sidebar::DockingState get_sidebar_docking_state() const;
+    bool is_ai_slice_assistant_panel_shown();
+    void show_ai_slice_assistant_panel(bool show);
+    void toggle_ai_slice_assistant_panel();
 
     void reset_window_layout();
 
